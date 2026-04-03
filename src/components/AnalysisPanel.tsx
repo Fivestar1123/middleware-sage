@@ -1,10 +1,11 @@
-import { AlertOctagon, AlertTriangle, Info, ChevronDown } from 'lucide-react';
+import { AlertOctagon, AlertTriangle, Info, ChevronDown, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { type AnalysisResult } from '@/data/mockLogs';
 
 interface AnalysisPanelProps {
   results: AnalysisResult[];
   onHoverLines?: (lines: number[]) => void;
+  isLoading?: boolean;
 }
 
 const severityConfig = {
@@ -13,15 +14,21 @@ const severityConfig = {
   info: { icon: Info, label: 'INFO', colorClass: 'text-info border-info/30 bg-info/5' },
 };
 
-const AnalysisPanel = ({ results, onHoverLines }: AnalysisPanelProps) => {
+const AnalysisPanel = ({ results, onHoverLines, isLoading }: AnalysisPanelProps) => {
   const [expanded, setExpanded] = useState<number | null>(0);
 
   return (
     <div className="bg-card border border-border rounded-lg overflow-hidden flex flex-col h-full">
-      <div className="px-3 py-2 border-b border-border">
+      <div className="px-3 py-2 border-b border-border flex items-center justify-between">
         <h3 className="text-xs font-semibold text-foreground font-heading">AI 분석 결과</h3>
+        {isLoading && <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" />}
       </div>
       <div className="overflow-auto flex-1 p-2 space-y-2">
+        {isLoading && results.length === 0 && (
+          <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin mr-2" />AI가 로그를 분석하고 있습니다...
+          </div>
+        )}
         {results.map((result, idx) => {
           const config = severityConfig[result.severity];
           const Icon = config.icon;
