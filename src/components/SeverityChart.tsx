@@ -1,24 +1,23 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
-import { dashboardStats } from '@/data/mockLogs';
 
-const pieData = [
-  { name: 'Critical', value: dashboardStats.critical, color: 'hsl(0, 72%, 51%)' },
-  { name: 'Warning', value: dashboardStats.warning, color: 'hsl(38, 92%, 50%)' },
-  { name: 'Info', value: dashboardStats.info, color: 'hsl(210, 100%, 56%)' },
-];
+interface SeverityChartProps {
+  stats: {
+    critical: number;
+    warning: number;
+    info: number;
+    totalLines: number;
+  };
+}
 
-const timeData = [
-  { time: '09:12', critical: 0, warning: 0, info: 1 },
-  { time: '09:15', critical: 0, warning: 0, info: 1 },
-  { time: '09:30', critical: 0, warning: 2, info: 0 },
-  { time: '09:45', critical: 3, warning: 0, info: 0 },
-  { time: '09:46', critical: 1, warning: 1, info: 0 },
-  { time: '09:50', critical: 1, warning: 1, info: 1 },
-  { time: '10:00', critical: 0, warning: 0, info: 1 },
-  { time: '10:05', critical: 0, warning: 1, info: 0 },
-];
+const SeverityChart = ({ stats }: SeverityChartProps) => {
+  const pieData = [
+    { name: 'Critical', value: stats.critical, color: 'hsl(0, 72%, 51%)' },
+    { name: 'Warning', value: stats.warning, color: 'hsl(38, 92%, 50%)' },
+    { name: 'Info', value: stats.info, color: 'hsl(210, 100%, 56%)' },
+  ];
 
-const SeverityChart = () => {
+  const tooltipStyle = { background: 'hsl(220, 18%, 13%)', border: '1px solid hsl(220, 14%, 20%)', borderRadius: '8px', fontSize: '12px', color: 'hsl(210, 20%, 92%)' };
+
   return (
     <div className="grid grid-cols-2 gap-3">
       <div className="bg-card border border-border rounded-lg p-4">
@@ -30,9 +29,7 @@ const SeverityChart = () => {
                 <Cell key={i} fill={entry.color} />
               ))}
             </Pie>
-            <Tooltip
-              contentStyle={{ background: 'hsl(220, 18%, 13%)', border: '1px solid hsl(220, 14%, 20%)', borderRadius: '8px', fontSize: '12px', color: 'hsl(210, 20%, 92%)' }}
-            />
+            <Tooltip contentStyle={tooltipStyle} />
           </PieChart>
         </ResponsiveContainer>
         <div className="flex justify-center gap-4 mt-2">
@@ -46,18 +43,25 @@ const SeverityChart = () => {
       </div>
 
       <div className="bg-card border border-border rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-foreground mb-3 font-heading">시간대별 로그 발생</h3>
-        <ResponsiveContainer width="100%" height={180}>
-          <BarChart data={timeData} barSize={12}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 14%, 20%)" />
-            <XAxis dataKey="time" tick={{ fill: 'hsl(215, 15%, 55%)', fontSize: 10 }} axisLine={false} />
-            <YAxis tick={{ fill: 'hsl(215, 15%, 55%)', fontSize: 10 }} axisLine={false} />
-            <Tooltip contentStyle={{ background: 'hsl(220, 18%, 13%)', border: '1px solid hsl(220, 14%, 20%)', borderRadius: '8px', fontSize: '12px', color: 'hsl(210, 20%, 92%)' }} />
-            <Bar dataKey="critical" stackId="a" fill="hsl(0, 72%, 51%)" radius={[0, 0, 0, 0]} />
-            <Bar dataKey="warning" stackId="a" fill="hsl(38, 92%, 50%)" />
-            <Bar dataKey="info" stackId="a" fill="hsl(210, 100%, 56%)" radius={[2, 2, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+        <h3 className="text-sm font-semibold text-foreground mb-3 font-heading">위험도 요약</h3>
+        <div className="flex flex-col items-center justify-center h-[180px] gap-4">
+          <div className="text-4xl font-bold font-heading text-foreground">{stats.totalLines}</div>
+          <div className="text-xs text-muted-foreground">총 분석 라인</div>
+          <div className="flex gap-6 text-sm">
+            <div className="text-center">
+              <span className="text-2xl font-bold text-critical">{stats.critical}</span>
+              <p className="text-xs text-muted-foreground mt-1">Critical</p>
+            </div>
+            <div className="text-center">
+              <span className="text-2xl font-bold text-warning">{stats.warning}</span>
+              <p className="text-xs text-muted-foreground mt-1">Warning</p>
+            </div>
+            <div className="text-center">
+              <span className="text-2xl font-bold text-info">{stats.info}</span>
+              <p className="text-xs text-muted-foreground mt-1">Info</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
