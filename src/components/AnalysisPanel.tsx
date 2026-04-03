@@ -5,6 +5,7 @@ import { type AnalysisResult } from '@/data/mockLogs';
 interface AnalysisPanelProps {
   results: AnalysisResult[];
   onHoverLines?: (lines: number[]) => void;
+  isLoading?: boolean;
 }
 
 const severityConfig = {
