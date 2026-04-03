@@ -1,4 +1,4 @@
-import { AlertOctagon, AlertTriangle, Info, ChevronDown } from 'lucide-react';
+import { AlertOctagon, AlertTriangle, Info, ChevronDown, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { type AnalysisResult } from '@/data/mockLogs';
 
