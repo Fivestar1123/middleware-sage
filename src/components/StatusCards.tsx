@@ -1,12 +1,22 @@
 import { AlertTriangle, AlertOctagon, Info, FileText } from 'lucide-react';
-import { dashboardStats } from '@/data/mockLogs';
 
-const StatusCards = () => {
+interface DashboardStats {
+  critical: number;
+  warning: number;
+  info: number;
+  totalLines: number;
+}
+
+interface StatusCardsProps {
+  stats: DashboardStats;
+}
+
+const StatusCards = ({ stats }: StatusCardsProps) => {
   const cards = [
-    { label: 'Critical', value: dashboardStats.critical, icon: AlertOctagon, colorClass: 'text-critical bg-critical/10 border-critical/20' },
-    { label: 'Warning', value: dashboardStats.warning, icon: AlertTriangle, colorClass: 'text-warning bg-warning/10 border-warning/20' },
-    { label: 'Info', value: dashboardStats.info, icon: Info, colorClass: 'text-info bg-info/10 border-info/20' },
-    { label: 'Total Lines', value: dashboardStats.totalLines, icon: FileText, colorClass: 'text-foreground bg-muted border-border' },
+    { label: 'Critical', value: stats.critical, icon: AlertOctagon, colorClass: 'text-critical bg-critical/10 border-critical/20' },
+    { label: 'Warning', value: stats.warning, icon: AlertTriangle, colorClass: 'text-warning bg-warning/10 border-warning/20' },
+    { label: 'Info', value: stats.info, icon: Info, colorClass: 'text-info bg-info/10 border-info/20' },
+    { label: 'Total Lines', value: stats.totalLines, icon: FileText, colorClass: 'text-foreground bg-muted border-border' },
   ];
 
   return (

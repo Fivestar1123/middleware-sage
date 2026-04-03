@@ -1,13 +1,14 @@
 import { useState, useCallback } from 'react';
-import { Upload, FileText, CheckCircle } from 'lucide-react';
+import { Upload, FileText, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface LogUploaderProps {
   onLogLoaded: (content: string, filename: string) => void;
-  hasLog: boolean;
+  onDemoLoad: () => void;
+  isAnalyzing: boolean;
 }
 
-const LogUploader = ({ onLogLoaded, hasLog }: LogUploaderProps) => {
+const LogUploader = ({ onLogLoaded, onDemoLoad, isAnalyzing }: LogUploaderProps) => {
   const [isDragging, setIsDragging] = useState(false);
 
   const handleFile = useCallback((file: File) => {
@@ -30,11 +31,11 @@ const LogUploader = ({ onLogLoaded, hasLog }: LogUploaderProps) => {
     if (file) handleFile(file);
   }, [handleFile]);
 
-  if (hasLog) {
+  if (isAnalyzing) {
     return (
-      <div className="flex items-center gap-2 text-xs text-success">
-        <CheckCircle className="w-3.5 h-3.5" />
-        <span>로그 파일 로드됨</span>
+      <div className="flex items-center gap-2 text-xs text-primary">
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        <span>AI 분석 중...</span>
       </div>
     );
   }
@@ -53,7 +54,12 @@ const LogUploader = ({ onLogLoaded, hasLog }: LogUploaderProps) => {
       <p className="text-sm text-foreground font-medium">로그 파일을 드래그하거나 클릭하여 업로드</p>
       <p className="text-xs text-muted-foreground mt-1">.log, .txt 파일 지원</p>
       <input id="log-file-input" type="file" accept=".log,.txt" className="hidden" onChange={handleFileInput} />
-      <Button variant="outline" size="sm" className="mt-3">
+      <Button
+        variant="outline"
+        size="sm"
+        className="mt-3"
+        onClick={(e) => { e.stopPropagation(); onDemoLoad(); }}
+      >
         <FileText className="w-3.5 h-3.5 mr-1" />
         데모 로그 불러오기
       </Button>
