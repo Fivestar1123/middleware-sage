@@ -52,8 +52,8 @@ const LogUploader = ({ onLogLoaded, onDemoLoad, isAnalyzing }: LogUploaderProps)
     >
       <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
       <p className="text-sm text-foreground font-medium">로그 파일을 드래그하거나 클릭하여 업로드</p>
-      <p className="text-xs text-muted-foreground mt-1">.log, .txt 파일 지원</p>
-      <input id="log-file-input" type="file" accept=".log,.txt" className="hidden" onChange={handleFileInput} />
+      <p className="text-xs text-muted-foreground mt-1">.log, .txt, .hprof, .phd, .dmp 파일 지원</p>
+      <input id="log-file-input" type="file" accept=".log,.txt,.hprof,.phd,.dmp" className="hidden" onChange={handleFileInput} />
       <Button
         variant="outline"
         size="sm"
