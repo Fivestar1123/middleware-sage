@@ -11,7 +11,13 @@ interface LogUploaderProps {
 const LogUploader = ({ onLogLoaded, onDemoLoad, isAnalyzing }: LogUploaderProps) => {
   const [isDragging, setIsDragging] = useState(false);
 
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
   const handleFile = useCallback((file: File) => {
+    if (file.size > MAX_FILE_SIZE) {
+      alert('파일 크기가 10MB를 초과합니다. 더 작은 파일을 업로드해주세요.');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (e) => {
       onLogLoaded(e.target?.result as string, file.name);
