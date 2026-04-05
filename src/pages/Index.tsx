@@ -12,6 +12,28 @@ import { mockLogText, type AnalysisResult } from '@/data/mockLogs';
 import { analyzeLog } from '@/lib/logAnalysisApi';
 import { toast } from '@/hooks/use-toast';
 
+const generateMarkdownReport = (results: AnalysisResult[], stats: { critical: number; warning: number; info: number; totalLines: number }) => {
+  const now = new Date().toLocaleString('ko-KR');
+  let md = `# 🛡️ Middleware AI Guard - 장애 분석 보고서\n\n`;
+  md += `**생성일시:** ${now}\n\n`;
+  md += `---\n\n## 📊 요약\n\n`;
+  md += `| 구분 | 건수 |\n|------|------|\n`;
+  md += `| 🔴 Critical | ${stats.critical} |\n`;
+  md += `| 🟡 Warning | ${stats.warning} |\n`;
+  md += `| 🔵 Info | ${stats.info} |\n`;
+  md += `| 총 라인 수 | ${stats.totalLines} |\n\n`;
+  md += `---\n\n## 🔍 상세 분석 결과\n\n`;
+  results.forEach((r, i) => {
+    const icon = r.severity === 'critical' ? '🔴' : r.severity === 'warning' ? '🟡' : '🔵';
+    md += `### ${i + 1}. ${icon} [${r.severity.toUpperCase()}] ${r.title}\n\n`;
+    md += `**장애 원인 추정:**\n${r.cause}\n\n`;
+    md += `**권장 조치 가이드:**\n\`\`\`\n${r.recommendation}\n\`\`\`\n\n`;
+    md += `**예상 영향 범위:**\n${r.impact}\n\n`;
+    md += `**관련 라인:** ${r.relatedLines.join(', ')}\n\n---\n\n`;
+  });
+  return md;
+};
+
 interface Stats {
   critical: number;
   warning: number;
@@ -95,7 +117,23 @@ const Index = () => {
             ) : (
               <LogUploader onLogLoaded={handleLogLoaded} onDemoLoad={handleDemoLoad} isAnalyzing={isAnalyzing} />
             )}
-            <Button variant="outline" size="sm" className="w-full" disabled={!hasLog || analysisResults.length === 0}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              disabled={!hasLog || analysisResults.length === 0}
+              onClick={() => {
+                const md = generateMarkdownReport(analysisResults, stats);
+                const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `장애분석보고서_${new Date().toISOString().slice(0, 10)}.md`;
+                a.click();
+                URL.revokeObjectURL(url);
+                toast({ title: '보고서 다운로드', description: 'Markdown 보고서가 다운로드되었습니다.' });
+              }}
+            >
               <FileDown className="w-3.5 h-3.5 mr-1" />
               보고서 생성 (Markdown)
             </Button>
