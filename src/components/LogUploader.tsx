@@ -15,7 +15,7 @@ const LogUploader = ({ onLogLoaded, onDemoLoad, isAnalyzing }: LogUploaderProps)
 
   const handleFile = useCallback((file: File) => {
     if (file.size > MAX_FILE_SIZE) {
-      alert('파일 크기가 10MB를 초과합니다. 더 작은 파일을 업로드해주세요.');
+      alert('파일 크기가 50MB를 초과합니다. 더 작은 파일을 업로드해주세요.');
       return;
     }
     const reader = new FileReader();
