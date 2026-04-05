@@ -11,7 +11,7 @@ interface LogUploaderProps {
 const LogUploader = ({ onLogLoaded, onDemoLoad, isAnalyzing }: LogUploaderProps) => {
   const [isDragging, setIsDragging] = useState(false);
 
-  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+  const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
   const handleFile = useCallback((file: File) => {
     if (file.size > MAX_FILE_SIZE) {
