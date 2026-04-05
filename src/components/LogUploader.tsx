@@ -11,11 +11,11 @@ interface LogUploaderProps {
 const LogUploader = ({ onLogLoaded, onDemoLoad, isAnalyzing }: LogUploaderProps) => {
   const [isDragging, setIsDragging] = useState(false);
 
-  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+  const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
   const handleFile = useCallback((file: File) => {
     if (file.size > MAX_FILE_SIZE) {
-      alert('파일 크기가 10MB를 초과합니다. 더 작은 파일을 업로드해주세요.');
+      alert('파일 크기가 50MB를 초과합니다. 더 작은 파일을 업로드해주세요.');
       return;
     }
     const reader = new FileReader();
@@ -58,7 +58,7 @@ const LogUploader = ({ onLogLoaded, onDemoLoad, isAnalyzing }: LogUploaderProps)
     >
       <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
       <p className="text-sm text-foreground font-medium">로그 파일을 드래그하거나 클릭하여 업로드</p>
-      <p className="text-xs text-muted-foreground mt-1">.log, .txt 파일 지원 (최대 10MB)</p>
+      <p className="text-xs text-muted-foreground mt-1">.log, .txt 파일 지원 (최대 50MB)</p>
       <input id="log-file-input" type="file" accept=".log,.txt" className="hidden" onChange={handleFileInput} />
       <Button
         variant="outline"
