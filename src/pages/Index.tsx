@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { FileDown, Loader2, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import DashboardHeader from '@/components/DashboardHeader';
@@ -8,9 +8,12 @@ import LogUploader from '@/components/LogUploader';
 import LogViewer from '@/components/LogViewer';
 import AnalysisPanel from '@/components/AnalysisPanel';
 import ChatInterface from '@/components/ChatInterface';
+import AnalysisHistory from '@/components/AnalysisHistory';
 import { mockLogText, type AnalysisResult } from '@/data/mockLogs';
 import { analyzeLog } from '@/lib/logAnalysisApi';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 
 const generateMarkdownReport = (results: AnalysisResult[], stats: { critical: number; warning: number; info: number; totalLines: number }) => {
   const now = new Date().toLocaleString('ko-KR');
@@ -42,20 +45,40 @@ interface Stats {
 }
 
 const Index = () => {
+  const { user } = useAuth();
   const [logContent, setLogContent] = useState('');
   const [hasLog, setHasLog] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResults, setAnalysisResults] = useState<AnalysisResult[]>([]);
   const [stats, setStats] = useState<Stats>({ critical: 0, warning: 0, info: 0, totalLines: 0 });
   const [highlightedLines, setHighlightedLines] = useState<number[]>([]);
+  const [currentFilename, setCurrentFilename] = useState('');
+  const historyKeyRef = useRef(0);
 
-  const runAnalysis = useCallback(async (content: string) => {
+  const saveToHistory = useCallback(async (filename: string, content: string, results: AnalysisResult[], analysisStats: Stats) => {
+    if (!user) return;
+    const { error } = await supabase.from('analysis_history').insert({
+      user_id: user.id,
+      filename,
+      log_content: content,
+      results: results as any,
+      stats: analysisStats as any,
+    });
+    if (error) {
+      console.error('Failed to save history:', error);
+    } else {
+      historyKeyRef.current += 1;
+    }
+  }, [user]);
+
+  const runAnalysis = useCallback(async (content: string, filename: string) => {
     setIsAnalyzing(true);
     try {
       const result = await analyzeLog(content);
       setAnalysisResults(result.analyses);
       setStats(result.stats);
       toast({ title: '분석 완료', description: `${result.analyses.length}개의 장애 패턴을 발견했습니다.` });
+      await saveToHistory(filename, content, result.analyses, result.stats);
     } catch (e) {
       toast({
         title: 'AI 분석 오류',
@@ -65,20 +88,22 @@ const Index = () => {
     } finally {
       setIsAnalyzing(false);
     }
-  }, []);
+  }, [saveToHistory]);
 
-  const handleLogLoaded = useCallback((content: string, _filename: string) => {
+  const handleLogLoaded = useCallback((content: string, filename: string) => {
     setLogContent(content);
     setHasLog(true);
+    setCurrentFilename(filename);
     setAnalysisResults([]);
-    runAnalysis(content);
+    runAnalysis(content, filename);
   }, [runAnalysis]);
 
   const handleDemoLoad = useCallback(() => {
     setLogContent(mockLogText);
     setHasLog(true);
+    setCurrentFilename('demo_log.log');
     setAnalysisResults([]);
-    runAnalysis(mockLogText);
+    runAnalysis(mockLogText, 'demo_log.log');
   }, [runAnalysis]);
 
   const handleReset = useCallback(() => {
@@ -87,6 +112,17 @@ const Index = () => {
     setAnalysisResults([]);
     setStats({ critical: 0, warning: 0, info: 0, totalLines: 0 });
     setHighlightedLines([]);
+    setCurrentFilename('');
+  }, []);
+
+  const handleLoadHistory = useCallback((content: string, results: AnalysisResult[], historyStats: Stats, filename: string) => {
+    setLogContent(content);
+    setHasLog(true);
+    setAnalysisResults(results);
+    setStats(historyStats);
+    setCurrentFilename(filename);
+    setHighlightedLines([]);
+    toast({ title: '이력 불러오기', description: `${filename} 분석 결과를 불러왔습니다.` });
   }, []);
 
   return (
@@ -139,6 +175,9 @@ const Index = () => {
             </Button>
           </div>
         </div>
+
+        {/* History */}
+        {!hasLog && <AnalysisHistory key={historyKeyRef.current} onLoad={handleLoadHistory} />}
 
         {/* Charts */}
         {hasLog && <SeverityChart stats={stats} />}
