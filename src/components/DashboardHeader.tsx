@@ -22,6 +22,26 @@ const DashboardHeader = () => {
         </div>
       </div>
       <div className="flex items-center gap-3">
+        <nav className="flex items-center gap-1 mr-2">
+          <Button
+            variant={location.pathname === '/' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => navigate('/')}
+          >
+            <Shield className="w-3 h-3 mr-1" />
+            분석
+          </Button>
+          <Button
+            variant={location.pathname === '/splitter' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => navigate('/splitter')}
+          >
+            <Scissors className="w-3 h-3 mr-1" />
+            파일 분할
+          </Button>
+        </nav>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Activity className="w-3.5 h-3.5 text-success" />
           <span>시스템 정상</span>
