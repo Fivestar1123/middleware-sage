@@ -5,6 +5,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 
 const DashboardHeader = () => {
   const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   return (
     <header className="border-b border-border bg-card px-6 py-3 flex items-center justify-between">
