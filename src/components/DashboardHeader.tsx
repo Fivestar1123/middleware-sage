@@ -1,6 +1,7 @@
-import { Shield, Activity, LogOut } from 'lucide-react';
+import { Shield, Activity, LogOut, Scissors } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 const DashboardHeader = () => {
   const { user, signOut } = useAuth();
