@@ -1,9 +1,12 @@
-import { Shield, Activity, LogOut } from 'lucide-react';
+import { Shield, Activity, LogOut, Scissors } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 const DashboardHeader = () => {
   const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   return (
     <header className="border-b border-border bg-card px-6 py-3 flex items-center justify-between">
@@ -19,6 +22,26 @@ const DashboardHeader = () => {
         </div>
       </div>
       <div className="flex items-center gap-3">
+        <nav className="flex items-center gap-1 mr-2">
+          <Button
+            variant={location.pathname === '/' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => navigate('/')}
+          >
+            <Shield className="w-3 h-3 mr-1" />
+            분석
+          </Button>
+          <Button
+            variant={location.pathname === '/splitter' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => navigate('/splitter')}
+          >
+            <Scissors className="w-3 h-3 mr-1" />
+            파일 분할
+          </Button>
+        </nav>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Activity className="w-3.5 h-3.5 text-success" />
           <span>시스템 정상</span>
