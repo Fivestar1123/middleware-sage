@@ -54,6 +54,7 @@ const Index = () => {
   const [highlightedLines, setHighlightedLines] = useState<number[]>([]);
   const [currentFilename, setCurrentFilename] = useState('');
   const historyKeyRef = useRef(0);
+  const splitterProcessed = useRef(false);
 
   const saveToHistory = useCallback(async (filename: string, content: string, results: AnalysisResult[], analysisStats: Stats) => {
     if (!user) return;
