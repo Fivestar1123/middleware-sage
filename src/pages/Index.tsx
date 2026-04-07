@@ -99,6 +99,19 @@ const Index = () => {
     runAnalysis(content, filename);
   }, [runAnalysis]);
 
+  // Check for chunk from FileSplitter
+  useEffect(() => {
+    if (splitterProcessed.current) return;
+    const content = sessionStorage.getItem('splitter_log_content');
+    const filename = sessionStorage.getItem('splitter_log_filename');
+    if (content && filename) {
+      splitterProcessed.current = true;
+      sessionStorage.removeItem('splitter_log_content');
+      sessionStorage.removeItem('splitter_log_filename');
+      handleLogLoaded(content, filename);
+    }
+  }, [handleLogLoaded]);
+
   const handleDemoLoad = useCallback(() => {
     setLogContent(mockLogText);
     setHasLog(true);
