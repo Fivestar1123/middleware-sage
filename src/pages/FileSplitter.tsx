@@ -1,21 +1,33 @@
 import { useState, useCallback, useRef } from 'react';
-import { Scissors, Upload, Download, FileText, Trash2, Eye } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Scissors, Upload, Download, FileText, Trash2, Eye, Play, Search } from 'lucide-react';
 import JSZip from 'jszip';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import DashboardHeader from '@/components/DashboardHeader';
 import { toast } from '@/hooks/use-toast';
 
+interface ChunkInfo {
+  name: string;
+  size: number;
+  blob: Blob;
+}
+
 const FileSplitter = () => {
+  const navigate = useNavigate();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState('');
   const [chunkSizeMB, setChunkSizeMB] = useState(1);
   const [isSplitting, setIsSplitting] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [chunks, setChunks] = useState<{ name: string; size: number }[]>([]);
+  const [chunks, setChunks] = useState<ChunkInfo[]>([]);
+  const [selectedChunk, setSelectedChunk] = useState<number | null>(null);
+  const [chunkPreview, setChunkPreview] = useState('');
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const zipRef = useRef<JSZip | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -29,9 +41,9 @@ const FileSplitter = () => {
     setFile(f);
     setChunks([]);
     setProgress(0);
+    setSelectedChunk(null);
     zipRef.current = null;
 
-    // Read first 100 lines for preview
     const slice = f.slice(0, 50_000);
     const text = await slice.text();
     const lines = text.split('\n').slice(0, 100);
@@ -49,13 +61,14 @@ const FileSplitter = () => {
     setIsSplitting(true);
     setProgress(0);
     setChunks([]);
+    setSelectedChunk(null);
 
     const chunkSize = chunkSizeMB * 1024 * 1024;
     const totalChunks = Math.ceil(file.size / chunkSize);
     const zip = new JSZip();
     const baseName = file.name.replace(/\.[^.]+$/, '');
     const ext = file.name.includes('.') ? file.name.slice(file.name.lastIndexOf('.')) : '.txt';
-    const resultChunks: { name: string; size: number }[] = [];
+    const resultChunks: ChunkInfo[] = [];
 
     for (let i = 0; i < totalChunks; i++) {
       const start = i * chunkSize;
@@ -63,9 +76,8 @@ const FileSplitter = () => {
       const blob = file.slice(start, end);
       const name = `${baseName}_part${String(i + 1).padStart(3, '0')}${ext}`;
       zip.file(name, blob);
-      resultChunks.push({ name, size: end - start });
+      resultChunks.push({ name, size: end - start, blob });
       setProgress(Math.round(((i + 1) / totalChunks) * 100));
-      // Yield to UI
       if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
     }
 
@@ -75,7 +87,7 @@ const FileSplitter = () => {
     toast({ title: '분할 완료', description: `${resultChunks.length}개 파일로 분할되었습니다.` });
   }, [file, chunkSizeMB]);
 
-  const handleDownload = useCallback(async () => {
+  const handleDownloadAll = useCallback(async () => {
     if (!zipRef.current || !file) return;
     toast({ title: 'ZIP 생성 중...', description: '잠시만 기다려주세요.' });
     const blob = await zipRef.current.generateAsync({ type: 'blob' });
@@ -88,11 +100,45 @@ const FileSplitter = () => {
     toast({ title: '다운로드 완료', description: 'ZIP 파일이 다운로드되었습니다.' });
   }, [file]);
 
+  const handleChunkPreview = useCallback(async (index: number) => {
+    const chunk = chunks[index];
+    if (!chunk) return;
+    setSelectedChunk(index);
+    const text = await chunk.blob.text();
+    const lines = text.split('\n').slice(0, 50);
+    setChunkPreview(lines.join('\n'));
+    setIsPreviewOpen(true);
+  }, [chunks]);
+
+  const handleChunkDownload = useCallback((index: number) => {
+    const chunk = chunks[index];
+    if (!chunk) return;
+    const url = URL.createObjectURL(chunk.blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = chunk.name;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: '다운로드 완료', description: `${chunk.name} 파일이 다운로드되었습니다.` });
+  }, [chunks]);
+
+  const handleChunkAnalyze = useCallback(async (index: number) => {
+    const chunk = chunks[index];
+    if (!chunk) return;
+    const text = await chunk.blob.text();
+    // Store in sessionStorage and navigate to analysis page
+    sessionStorage.setItem('splitter_log_content', text);
+    sessionStorage.setItem('splitter_log_filename', chunk.name);
+    navigate('/');
+    toast({ title: '분석 페이지로 이동', description: `${chunk.name} 파일을 분석합니다.` });
+  }, [chunks, navigate]);
+
   const handleReset = useCallback(() => {
     setFile(null);
     setPreview('');
     setChunks([]);
     setProgress(0);
+    setSelectedChunk(null);
     zipRef.current = null;
   }, []);
 
@@ -110,7 +156,6 @@ const FileSplitter = () => {
           <p className="text-sm text-muted-foreground">대용량 로그 파일을 원하는 크기로 분할하여 ZIP으로 다운로드</p>
         </div>
 
-        {/* Upload Area */}
         {!file ? (
           <Card
             className="border-2 border-dashed border-muted-foreground/30 hover:border-primary/50 transition-colors cursor-pointer"
@@ -136,7 +181,6 @@ const FileSplitter = () => {
           </Card>
         ) : (
           <>
-            {/* File Info */}
             <Card>
               <CardContent className="py-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -151,7 +195,6 @@ const FileSplitter = () => {
               </CardContent>
             </Card>
 
-            {/* Preview */}
             {preview && (
               <Card>
                 <CardHeader className="py-2 px-4">
@@ -168,7 +211,6 @@ const FileSplitter = () => {
               </Card>
             )}
 
-            {/* Chunk Size Setting */}
             <Card>
               <CardContent className="py-4 space-y-3">
                 <div className="flex items-center justify-between">
@@ -189,51 +231,105 @@ const FileSplitter = () => {
               </CardContent>
             </Card>
 
-            {/* Split Button */}
-            <Button
-              className="w-full"
-              size="lg"
-              onClick={handleSplit}
-              disabled={isSplitting}
-            >
+            <Button className="w-full" size="lg" onClick={handleSplit} disabled={isSplitting}>
               <Scissors className="w-4 h-4 mr-2" />
               {isSplitting ? '분할 중...' : '파일 분할하기'}
             </Button>
 
-            {/* Progress */}
-            {(isSplitting || progress > 0) && (
-              <Progress value={progress} className="w-full" />
-            )}
+            {(isSplitting || progress > 0) && <Progress value={progress} className="w-full" />}
 
-            {/* Results */}
             {chunks.length > 0 && (
               <Card>
-                <CardHeader className="py-2 px-4">
+                <CardHeader className="py-2 px-4 flex flex-row items-center justify-between">
                   <CardTitle className="text-sm text-foreground">
                     분할 완료: {chunks.length}개 파일
                   </CardTitle>
+                  <Button size="sm" variant="outline" onClick={handleDownloadAll}>
+                    <Download className="w-3.5 h-3.5 mr-1" />
+                    전체 ZIP 다운로드
+                  </Button>
                 </CardHeader>
-                <CardContent className="px-4 pb-3 space-y-2">
-                  <ScrollArea className="h-48">
+                <CardContent className="px-4 pb-3">
+                  <ScrollArea className="h-64">
                     <div className="space-y-1">
                       {chunks.map((c, i) => (
-                        <div key={i} className="flex items-center justify-between text-xs px-2 py-1.5 rounded bg-muted/30">
-                          <span className="text-foreground font-mono">{c.name}</span>
-                          <span className="text-muted-foreground">{formatSize(c.size)}</span>
+                        <div
+                          key={i}
+                          className="flex items-center justify-between text-xs px-2 py-2 rounded bg-muted/30 hover:bg-muted/60 transition-colors group"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileText className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                            <span className="text-foreground font-mono truncate">{c.name}</span>
+                            <span className="text-muted-foreground flex-shrink-0">{formatSize(c.size)}</span>
+                          </div>
+                          <div className="flex items-center gap-1 flex-shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              title="미리보기"
+                              onClick={() => handleChunkPreview(i)}
+                            >
+                              <Search className="w-3 h-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              title="다운로드"
+                              onClick={() => handleChunkDownload(i)}
+                            >
+                              <Download className="w-3 h-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              title="분석하기"
+                              onClick={() => handleChunkAnalyze(i)}
+                            >
+                              <Play className="w-3 h-3" />
+                            </Button>
+                          </div>
                         </div>
                       ))}
                     </div>
                   </ScrollArea>
-                  <Button className="w-full" onClick={handleDownload}>
-                    <Download className="w-4 h-4 mr-2" />
-                    ZIP으로 다운로드
-                  </Button>
                 </CardContent>
               </Card>
             )}
           </>
         )}
       </main>
+
+      {/* Chunk Preview Dialog */}
+      <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle className="text-sm flex items-center gap-2">
+              <Eye className="w-4 h-4 text-primary" />
+              {selectedChunk !== null && chunks[selectedChunk]?.name} — 미리보기 (처음 50줄)
+            </DialogTitle>
+          </DialogHeader>
+          <ScrollArea className="h-[50vh] rounded border border-border bg-muted/30 p-3">
+            <pre className="text-xs text-foreground/80 whitespace-pre-wrap font-mono">{chunkPreview}</pre>
+          </ScrollArea>
+          <div className="flex gap-2 justify-end">
+            {selectedChunk !== null && (
+              <>
+                <Button variant="outline" size="sm" onClick={() => { handleChunkDownload(selectedChunk); }}>
+                  <Download className="w-3.5 h-3.5 mr-1" />
+                  다운로드
+                </Button>
+                <Button size="sm" onClick={() => { handleChunkAnalyze(selectedChunk); }}>
+                  <Play className="w-3.5 h-3.5 mr-1" />
+                  분석하기
+                </Button>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

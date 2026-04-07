@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { FileDown, Loader2, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import DashboardHeader from '@/components/DashboardHeader';
@@ -54,6 +54,7 @@ const Index = () => {
   const [highlightedLines, setHighlightedLines] = useState<number[]>([]);
   const [currentFilename, setCurrentFilename] = useState('');
   const historyKeyRef = useRef(0);
+  const splitterProcessed = useRef(false);
 
   const saveToHistory = useCallback(async (filename: string, content: string, results: AnalysisResult[], analysisStats: Stats) => {
     if (!user) return;
@@ -97,6 +98,19 @@ const Index = () => {
     setAnalysisResults([]);
     runAnalysis(content, filename);
   }, [runAnalysis]);
+
+  // Check for chunk from FileSplitter
+  useEffect(() => {
+    if (splitterProcessed.current) return;
+    const content = sessionStorage.getItem('splitter_log_content');
+    const filename = sessionStorage.getItem('splitter_log_filename');
+    if (content && filename) {
+      splitterProcessed.current = true;
+      sessionStorage.removeItem('splitter_log_content');
+      sessionStorage.removeItem('splitter_log_filename');
+      handleLogLoaded(content, filename);
+    }
+  }, [handleLogLoaded]);
 
   const handleDemoLoad = useCallback(() => {
     setLogContent(mockLogText);
