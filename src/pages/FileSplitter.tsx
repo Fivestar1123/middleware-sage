@@ -1,6 +1,6 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Scissors, Upload, Download, FileText, Trash2, Eye, Play, Search } from 'lucide-react';
+import { Scissors, Upload, Download, FileText, Trash2, Eye, Play, Search, History, Clock, Loader2 } from 'lucide-react';
 import JSZip from 'jszip';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
@@ -10,7 +10,17 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import DashboardHeader from '@/components/DashboardHeader';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 
+interface SplitHistoryEntry {
+  id: string;
+  filename: string;
+  original_size: number;
+  chunk_size_mb: number;
+  chunk_count: number;
+  created_at: string;
+}
 interface ChunkInfo {
   name: string;
   size: number;
@@ -19,6 +29,7 @@ interface ChunkInfo {
 
 const FileSplitter = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState('');
   const [chunkSizeMB, setChunkSizeMB] = useState(1);
@@ -28,8 +39,42 @@ const FileSplitter = () => {
   const [selectedChunk, setSelectedChunk] = useState<number | null>(null);
   const [chunkPreview, setChunkPreview] = useState('');
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [splitHistory, setSplitHistory] = useState<SplitHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const zipRef = useRef<JSZip | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const fetchHistory = useCallback(async () => {
+    if (!user) return;
+    setHistoryLoading(true);
+    const { data, error } = await supabase
+      .from('split_history')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if (!error) setSplitHistory(data as SplitHistoryEntry[]);
+    setHistoryLoading(false);
+  }, [user]);
+
+  useEffect(() => { fetchHistory(); }, [fetchHistory]);
+
+  const saveHistory = useCallback(async (filename: string, originalSize: number, chunkMb: number, count: number) => {
+    if (!user) return;
+    await supabase.from('split_history').insert({
+      user_id: user.id,
+      filename,
+      original_size: originalSize,
+      chunk_size_mb: chunkMb,
+      chunk_count: count,
+    });
+    fetchHistory();
+  }, [user, fetchHistory]);
+
+  const deleteHistory = useCallback(async (id: string) => {
+    await supabase.from('split_history').delete().eq('id', id);
+    setSplitHistory(prev => prev.filter(h => h.id !== id));
+    toast({ title: '삭제 완료' });
+  }, []);
 
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
@@ -85,7 +130,8 @@ const FileSplitter = () => {
     setChunks(resultChunks);
     setIsSplitting(false);
     toast({ title: '분할 완료', description: `${resultChunks.length}개 파일로 분할되었습니다.` });
-  }, [file, chunkSizeMB]);
+    await saveHistory(file.name, file.size, chunkSizeMB, resultChunks.length);
+  }, [file, chunkSizeMB, saveHistory]);
 
   const handleDownloadAll = useCallback(async () => {
     if (!zipRef.current || !file) return;
@@ -299,6 +345,57 @@ const FileSplitter = () => {
               </Card>
             )}
           </>
+        )}
+
+        {/* Split History */}
+        {!file && (
+          <Card>
+            <CardHeader className="py-2 px-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-xs flex items-center gap-1.5 text-foreground">
+                <History className="w-3.5 h-3.5 text-primary" />
+                분할 이력
+              </CardTitle>
+              <span className="text-[10px] text-muted-foreground">{splitHistory.length}건</span>
+            </CardHeader>
+            <CardContent className="px-4 pb-3">
+              {historyLoading ? (
+                <div className="flex items-center justify-center py-4 text-xs text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" /> 이력 불러오는 중...
+                </div>
+              ) : splitHistory.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">분할 이력이 없습니다.</p>
+              ) : (
+                <ScrollArea className="max-h-48">
+                  <div className="divide-y divide-border">
+                    {splitHistory.map((entry) => {
+                      const date = new Date(entry.created_at);
+                      return (
+                        <div key={entry.id} className="flex items-center justify-between py-2 group">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-medium text-foreground truncate">{entry.filename}</p>
+                            <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
+                              <Clock className="w-3 h-3" />
+                              <span>{date.toLocaleDateString('ko-KR')} {date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
+                              <span>•</span>
+                              <span>{(entry.original_size / (1024 * 1024)).toFixed(1)}MB → {entry.chunk_size_mb}MB × {entry.chunk_count}개</span>
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
+                            onClick={() => deleteHistory(entry.id)}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </ScrollArea>
+              )}
+            </CardContent>
+          </Card>
         )}
       </main>
 
