@@ -130,7 +130,8 @@ const FileSplitter = () => {
     setChunks(resultChunks);
     setIsSplitting(false);
     toast({ title: '분할 완료', description: `${resultChunks.length}개 파일로 분할되었습니다.` });
-  }, [file, chunkSizeMB]);
+    await saveHistory(file.name, file.size, chunkSizeMB, resultChunks.length);
+  }, [file, chunkSizeMB, saveHistory]);
 
   const handleDownloadAll = useCallback(async () => {
     if (!zipRef.current || !file) return;
