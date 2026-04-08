@@ -346,6 +346,57 @@ const FileSplitter = () => {
             )}
           </>
         )}
+
+        {/* Split History */}
+        {!file && (
+          <Card>
+            <CardHeader className="py-2 px-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-xs flex items-center gap-1.5 text-foreground">
+                <History className="w-3.5 h-3.5 text-primary" />
+                분할 이력
+              </CardTitle>
+              <span className="text-[10px] text-muted-foreground">{splitHistory.length}건</span>
+            </CardHeader>
+            <CardContent className="px-4 pb-3">
+              {historyLoading ? (
+                <div className="flex items-center justify-center py-4 text-xs text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" /> 이력 불러오는 중...
+                </div>
+              ) : splitHistory.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">분할 이력이 없습니다.</p>
+              ) : (
+                <ScrollArea className="max-h-48">
+                  <div className="divide-y divide-border">
+                    {splitHistory.map((entry) => {
+                      const date = new Date(entry.created_at);
+                      return (
+                        <div key={entry.id} className="flex items-center justify-between py-2 group">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-medium text-foreground truncate">{entry.filename}</p>
+                            <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
+                              <Clock className="w-3 h-3" />
+                              <span>{date.toLocaleDateString('ko-KR')} {date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
+                              <span>•</span>
+                              <span>{(entry.original_size / (1024 * 1024)).toFixed(1)}MB → {entry.chunk_size_mb}MB × {entry.chunk_count}개</span>
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
+                            onClick={() => deleteHistory(entry.id)}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </ScrollArea>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </main>
 
       {/* Chunk Preview Dialog */}
