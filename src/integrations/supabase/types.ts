@@ -44,6 +44,36 @@ export type Database = {
         }
         Relationships: []
       }
+      split_history: {
+        Row: {
+          chunk_count: number
+          chunk_size_mb: number
+          created_at: string
+          filename: string
+          id: string
+          original_size: number
+          user_id: string
+        }
+        Insert: {
+          chunk_count: number
+          chunk_size_mb: number
+          created_at?: string
+          filename: string
+          id?: string
+          original_size: number
+          user_id: string
+        }
+        Update: {
+          chunk_count?: number
+          chunk_size_mb?: number
+          created_at?: string
+          filename?: string
+          id?: string
+          original_size?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
