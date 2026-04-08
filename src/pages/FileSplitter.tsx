@@ -59,7 +59,7 @@ const FileSplitter = () => {
 
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
-  const saveHistory = useCallback(async (filename: string, originalSize: number, chunkMb: number, count: number) => {
+  const saveHistory = useCallback(async (filename: string, originalSize: number, chunkMb: number, count: number, filePath: string) => {
     if (!user) return;
     await supabase.from('split_history').insert({
       user_id: user.id,
@@ -67,15 +67,36 @@ const FileSplitter = () => {
       original_size: originalSize,
       chunk_size_mb: chunkMb,
       chunk_count: count,
-    });
+      file_path: filePath,
+    } as any);
     fetchHistory();
   }, [user, fetchHistory]);
 
-  const deleteHistory = useCallback(async (id: string) => {
-    await supabase.from('split_history').delete().eq('id', id);
-    setSplitHistory(prev => prev.filter(h => h.id !== id));
+  const deleteHistory = useCallback(async (entry: SplitHistoryEntry) => {
+    // Delete file from storage if exists
+    if (entry.file_path && user) {
+      await supabase.storage.from('split-files').remove([entry.file_path]);
+    }
+    await supabase.from('split_history').delete().eq('id', entry.id);
+    setSplitHistory(prev => prev.filter(h => h.id !== entry.id));
     toast({ title: '삭제 완료' });
-  }, []);
+  }, [user]);
+
+  const handleResplit = useCallback(async (entry: SplitHistoryEntry) => {
+    if (!entry.file_path) {
+      toast({ title: '파일 없음', description: '저장된 원본 파일이 없습니다.', variant: 'destructive' });
+      return;
+    }
+    toast({ title: '파일 다운로드 중...', description: '원본 파일을 불러오고 있습니다.' });
+    const { data, error } = await supabase.storage.from('split-files').download(entry.file_path);
+    if (error || !data) {
+      toast({ title: '다운로드 실패', description: error?.message || '알 수 없는 오류', variant: 'destructive' });
+      return;
+    }
+    const f = new File([data], entry.filename);
+    setChunkSizeMB(entry.chunk_size_mb);
+    handleFile(f);
+  }, [handleFile]);
 
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
