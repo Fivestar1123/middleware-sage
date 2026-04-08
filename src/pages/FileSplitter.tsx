@@ -19,6 +19,7 @@ interface SplitHistoryEntry {
   original_size: number;
   chunk_size_mb: number;
   chunk_count: number;
+  file_path: string | null;
   created_at: string;
 }
 interface ChunkInfo {
