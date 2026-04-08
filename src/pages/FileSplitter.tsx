@@ -61,15 +61,20 @@ const FileSplitter = () => {
 
   const saveHistory = useCallback(async (filename: string, originalSize: number, chunkMb: number, count: number, filePath: string) => {
     if (!user) return;
-    await supabase.from('split_history').insert({
+    const { error } = await supabase.from('split_history').insert({
       user_id: user.id,
       filename,
       original_size: originalSize,
       chunk_size_mb: chunkMb,
       chunk_count: count,
-      file_path: filePath,
+      file_path: filePath || null,
     } as any);
-    fetchHistory();
+    if (error) {
+      console.error('Failed to save split history:', error);
+      toast({ title: '이력 저장 실패', description: error.message, variant: 'destructive' });
+    } else {
+      fetchHistory();
+    }
   }, [user, fetchHistory]);
 
   const deleteHistory = useCallback(async (entry: SplitHistoryEntry) => {
