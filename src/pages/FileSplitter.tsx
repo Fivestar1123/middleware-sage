@@ -19,6 +19,7 @@ interface SplitHistoryEntry {
   original_size: number;
   chunk_size_mb: number;
   chunk_count: number;
+  file_path: string | null;
   created_at: string;
 }
 interface ChunkInfo {
@@ -58,7 +59,7 @@ const FileSplitter = () => {
 
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
-  const saveHistory = useCallback(async (filename: string, originalSize: number, chunkMb: number, count: number) => {
+  const saveHistory = useCallback(async (filename: string, originalSize: number, chunkMb: number, count: number, filePath: string) => {
     if (!user) return;
     await supabase.from('split_history').insert({
       user_id: user.id,
@@ -66,14 +67,43 @@ const FileSplitter = () => {
       original_size: originalSize,
       chunk_size_mb: chunkMb,
       chunk_count: count,
-    });
+      file_path: filePath,
+    } as any);
     fetchHistory();
   }, [user, fetchHistory]);
 
-  const deleteHistory = useCallback(async (id: string) => {
-    await supabase.from('split_history').delete().eq('id', id);
-    setSplitHistory(prev => prev.filter(h => h.id !== id));
+  const deleteHistory = useCallback(async (entry: SplitHistoryEntry) => {
+    // Delete file from storage if exists
+    if (entry.file_path && user) {
+      await supabase.storage.from('split-files').remove([entry.file_path]);
+    }
+    await supabase.from('split_history').delete().eq('id', entry.id);
+    setSplitHistory(prev => prev.filter(h => h.id !== entry.id));
     toast({ title: '삭제 완료' });
+  }, [user]);
+
+  const handleResplit = useCallback(async (entry: SplitHistoryEntry) => {
+    if (!entry.file_path) {
+      toast({ title: '파일 없음', description: '저장된 원본 파일이 없습니다.', variant: 'destructive' });
+      return;
+    }
+    toast({ title: '파일 다운로드 중...', description: '원본 파일을 불러오고 있습니다.' });
+    const { data, error } = await supabase.storage.from('split-files').download(entry.file_path);
+    if (error || !data) {
+      toast({ title: '다운로드 실패', description: error?.message || '알 수 없는 오류', variant: 'destructive' });
+      return;
+    }
+    const f = new File([data], entry.filename);
+    setChunkSizeMB(entry.chunk_size_mb);
+    setFile(f);
+    setChunks([]);
+    setProgress(0);
+    setSelectedChunk(null);
+    zipRef.current = null;
+    const slice = f.slice(0, 50_000);
+    const text = await slice.text();
+    const lines = text.split('\n').slice(0, 100);
+    setPreview(lines.join('\n'));
   }, []);
 
   const formatSize = (bytes: number) => {
@@ -130,8 +160,16 @@ const FileSplitter = () => {
     setChunks(resultChunks);
     setIsSplitting(false);
     toast({ title: '분할 완료', description: `${resultChunks.length}개 파일로 분할되었습니다.` });
-    await saveHistory(file.name, file.size, chunkSizeMB, resultChunks.length);
-  }, [file, chunkSizeMB, saveHistory]);
+
+    // Upload original file to storage
+    let filePath = '';
+    if (user) {
+      const storagePath = `${user.id}/${Date.now()}_${file.name}`;
+      const { error: uploadErr } = await supabase.storage.from('split-files').upload(storagePath, file);
+      if (!uploadErr) filePath = storagePath;
+    }
+    await saveHistory(file.name, file.size, chunkSizeMB, resultChunks.length, filePath);
+  }, [file, chunkSizeMB, saveHistory, user]);
 
   const handleDownloadAll = useCallback(async () => {
     if (!zipRef.current || !file) return;
@@ -380,14 +418,27 @@ const FileSplitter = () => {
                               <span>{(entry.original_size / (1024 * 1024)).toFixed(1)}MB → {entry.chunk_size_mb}MB × {entry.chunk_count}개</span>
                             </div>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
-                            onClick={() => deleteHistory(entry.id)}
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </Button>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {entry.file_path && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() => handleResplit(entry)}
+                                title="다시 분할하기"
+                              >
+                                <Scissors className="w-3 h-3" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
+                              onClick={() => deleteHistory(entry)}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          </div>
                         </div>
                       );
                     })}
