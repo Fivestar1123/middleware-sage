@@ -95,8 +95,16 @@ const FileSplitter = () => {
     }
     const f = new File([data], entry.filename);
     setChunkSizeMB(entry.chunk_size_mb);
-    handleFile(f);
-  }, [handleFile]);
+    setFile(f);
+    setChunks([]);
+    setProgress(0);
+    setSelectedChunk(null);
+    zipRef.current = null;
+    const slice = f.slice(0, 50_000);
+    const text = await slice.text();
+    const lines = text.split('\n').slice(0, 100);
+    setPreview(lines.join('\n'));
+  }, []);
 
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
