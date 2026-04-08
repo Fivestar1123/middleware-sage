@@ -29,6 +29,7 @@ interface ChunkInfo {
 
 const FileSplitter = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState('');
   const [chunkSizeMB, setChunkSizeMB] = useState(1);
@@ -38,8 +39,42 @@ const FileSplitter = () => {
   const [selectedChunk, setSelectedChunk] = useState<number | null>(null);
   const [chunkPreview, setChunkPreview] = useState('');
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [splitHistory, setSplitHistory] = useState<SplitHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const zipRef = useRef<JSZip | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const fetchHistory = useCallback(async () => {
+    if (!user) return;
+    setHistoryLoading(true);
+    const { data, error } = await supabase
+      .from('split_history')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if (!error) setSplitHistory(data as SplitHistoryEntry[]);
+    setHistoryLoading(false);
+  }, [user]);
+
+  useEffect(() => { fetchHistory(); }, [fetchHistory]);
+
+  const saveHistory = useCallback(async (filename: string, originalSize: number, chunkMb: number, count: number) => {
+    if (!user) return;
+    await supabase.from('split_history').insert({
+      user_id: user.id,
+      filename,
+      original_size: originalSize,
+      chunk_size_mb: chunkMb,
+      chunk_count: count,
+    });
+    fetchHistory();
+  }, [user, fetchHistory]);
+
+  const deleteHistory = useCallback(async (id: string) => {
+    await supabase.from('split_history').delete().eq('id', id);
+    setSplitHistory(prev => prev.filter(h => h.id !== id));
+    toast({ title: '삭제 완료' });
+  }, []);
 
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
