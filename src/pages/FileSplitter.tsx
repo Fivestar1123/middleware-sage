@@ -160,8 +160,16 @@ const FileSplitter = () => {
     setChunks(resultChunks);
     setIsSplitting(false);
     toast({ title: '분할 완료', description: `${resultChunks.length}개 파일로 분할되었습니다.` });
-    await saveHistory(file.name, file.size, chunkSizeMB, resultChunks.length);
-  }, [file, chunkSizeMB, saveHistory]);
+
+    // Upload original file to storage
+    let filePath = '';
+    if (user) {
+      const storagePath = `${user.id}/${Date.now()}_${file.name}`;
+      const { error: uploadErr } = await supabase.storage.from('split-files').upload(storagePath, file);
+      if (!uploadErr) filePath = storagePath;
+    }
+    await saveHistory(file.name, file.size, chunkSizeMB, resultChunks.length, filePath);
+  }, [file, chunkSizeMB, saveHistory, user]);
 
   const handleDownloadAll = useCallback(async () => {
     if (!zipRef.current || !file) return;
