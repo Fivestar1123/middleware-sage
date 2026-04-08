@@ -1,6 +1,6 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Scissors, Upload, Download, FileText, Trash2, Eye, Play, Search } from 'lucide-react';
+import { Scissors, Upload, Download, FileText, Trash2, Eye, Play, Search, History, Clock, Loader2 } from 'lucide-react';
 import JSZip from 'jszip';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
@@ -10,7 +10,17 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import DashboardHeader from '@/components/DashboardHeader';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 
+interface SplitHistoryEntry {
+  id: string;
+  filename: string;
+  original_size: number;
+  chunk_size_mb: number;
+  chunk_count: number;
+  created_at: string;
+}
 interface ChunkInfo {
   name: string;
   size: number;
