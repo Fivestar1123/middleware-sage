@@ -171,7 +171,11 @@ const FileSplitter = () => {
     if (user) {
       const storagePath = `${user.id}/${Date.now()}_${file.name}`;
       const { error: uploadErr } = await supabase.storage.from('split-files').upload(storagePath, file);
-      if (!uploadErr) filePath = storagePath;
+      if (uploadErr) {
+        console.error('Storage upload failed:', uploadErr);
+      } else {
+        filePath = storagePath;
+      }
     }
     await saveHistory(file.name, file.size, chunkSizeMB, resultChunks.length, filePath);
   }, [file, chunkSizeMB, saveHistory, user]);
