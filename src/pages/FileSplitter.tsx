@@ -418,14 +418,27 @@ const FileSplitter = () => {
                               <span>{(entry.original_size / (1024 * 1024)).toFixed(1)}MB → {entry.chunk_size_mb}MB × {entry.chunk_count}개</span>
                             </div>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
-                            onClick={() => deleteHistory(entry.id)}
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </Button>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {entry.file_path && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() => handleResplit(entry)}
+                                title="다시 분할하기"
+                              >
+                                <Scissors className="w-3 h-3" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
+                              onClick={() => deleteHistory(entry)}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          </div>
                         </div>
                       );
                     })}
