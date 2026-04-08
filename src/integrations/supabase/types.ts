@@ -49,6 +49,7 @@ export type Database = {
           chunk_count: number
           chunk_size_mb: number
           created_at: string
+          file_path: string | null
           filename: string
           id: string
           original_size: number
@@ -58,6 +59,7 @@ export type Database = {
           chunk_count: number
           chunk_size_mb: number
           created_at?: string
+          file_path?: string | null
           filename: string
           id?: string
           original_size: number
@@ -67,6 +69,7 @@ export type Database = {
           chunk_count?: number
           chunk_size_mb?: number
           created_at?: string
+          file_path?: string | null
           filename?: string
           id?: string
           original_size?: number
