@@ -429,20 +429,44 @@ const FileSplitter = () => {
                           </div>
                           <div className="flex items-center gap-1 flex-shrink-0">
                             {entry.file_path && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 px-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                                onClick={() => handleResplit(entry)}
-                                title="다시 분할하기"
-                              >
-                                <Scissors className="w-3 h-3" />
-                              </Button>
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2"
+                                  onClick={() => handleResplit(entry)}
+                                  title="다시 분할하기"
+                                >
+                                  <Scissors className="w-3 h-3" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2"
+                                  onClick={async () => {
+                                    const { data, error } = await supabase.storage.from('split-files').download(entry.file_path!);
+                                    if (error || !data) {
+                                      toast({ title: '다운로드 실패', description: error?.message || '알 수 없는 오류', variant: 'destructive' });
+                                      return;
+                                    }
+                                    const url = URL.createObjectURL(data);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = entry.filename;
+                                    a.click();
+                                    URL.revokeObjectURL(url);
+                                    toast({ title: '다운로드 완료' });
+                                  }}
+                                  title="원본 파일 다운로드"
+                                >
+                                  <Download className="w-3 h-3" />
+                                </Button>
+                              </>
                             )}
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-7 px-2 opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
+                              className="h-7 px-2 text-destructive"
                               onClick={() => deleteHistory(entry)}
                             >
                               <Trash2 className="w-3 h-3" />
