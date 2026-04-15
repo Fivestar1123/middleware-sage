@@ -30,7 +30,7 @@ interface ChunkInfo {
 
 const FileSplitter = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState('');
   const [chunkSizeMB, setChunkSizeMB] = useState(1);
@@ -45,40 +45,77 @@ const FileSplitter = () => {
   const zipRef = useRef<JSZip | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const resolveUser = useCallback(async () => {
+    if (user) return user;
+
+    const { data, error } = await supabase.auth.getUser();
+    if (error) {
+      console.error('Failed to resolve user:', error);
+      return null;
+    }
+
+    return data.user;
+  }, [user]);
+
   const fetchHistory = useCallback(async () => {
-    if (!user) return;
+    if (authLoading) return;
+
     setHistoryLoading(true);
+
+    const currentUser = await resolveUser();
+    if (!currentUser) {
+      setSplitHistory([]);
+      setHistoryLoading(false);
+      return;
+    }
+
     const { data, error } = await supabase
       .from('split_history')
       .select('*')
+      .eq('user_id', currentUser.id)
       .order('created_at', { ascending: false })
       .limit(20);
-    if (!error) setSplitHistory(data as SplitHistoryEntry[]);
+
+    if (error) {
+      console.error('Failed to fetch split history:', error);
+    } else {
+      setSplitHistory(data as SplitHistoryEntry[]);
+    }
+
     setHistoryLoading(false);
-  }, [user]);
+  }, [authLoading, resolveUser]);
 
-  useEffect(() => { fetchHistory(); }, [fetchHistory]);
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
 
-  const saveHistory = useCallback(async (filename: string, originalSize: number, chunkMb: number, count: number, filePath: string) => {
-    if (!user) return;
+  const saveHistory = useCallback(async (
+    filename: string,
+    originalSize: number,
+    chunkMb: number,
+    count: number,
+    filePath: string,
+    userId: string,
+  ) => {
     const { error } = await supabase.from('split_history').insert({
-      user_id: user.id,
+      user_id: userId,
       filename,
       original_size: originalSize,
       chunk_size_mb: chunkMb,
       chunk_count: count,
       file_path: filePath || null,
-    } as any);
+    });
+
     if (error) {
       console.error('Failed to save split history:', error);
       toast({ title: '이력 저장 실패', description: error.message, variant: 'destructive' });
-    } else {
-      fetchHistory();
+      return;
     }
-  }, [user, fetchHistory]);
+
+    await fetchHistory();
+  }, [fetchHistory]);
 
   const deleteHistory = useCallback(async (entry: SplitHistoryEntry) => {
-    // Delete file from storage if exists
     if (entry.file_path && user) {
       await supabase.storage.from('split-files').remove([entry.file_path]);
     }
@@ -137,48 +174,67 @@ const FileSplitter = () => {
   }, [handleFile]);
 
   const handleSplit = useCallback(async () => {
-    if (!file) return;
+    if (!file || authLoading) return;
+
     setIsSplitting(true);
     setProgress(0);
     setChunks([]);
     setSelectedChunk(null);
 
-    const chunkSize = chunkSizeMB * 1024 * 1024;
-    const totalChunks = Math.ceil(file.size / chunkSize);
-    const zip = new JSZip();
-    const baseName = file.name.replace(/\.[^.]+$/, '');
-    const ext = file.name.includes('.') ? file.name.slice(file.name.lastIndexOf('.')) : '.txt';
-    const resultChunks: ChunkInfo[] = [];
+    try {
+      const chunkSize = chunkSizeMB * 1024 * 1024;
+      const totalChunks = Math.ceil(file.size / chunkSize);
+      const zip = new JSZip();
+      const baseName = file.name.replace(/\.[^.]+$/, '');
+      const ext = file.name.includes('.') ? file.name.slice(file.name.lastIndexOf('.')) : '.txt';
+      const resultChunks: ChunkInfo[] = [];
 
-    for (let i = 0; i < totalChunks; i++) {
-      const start = i * chunkSize;
-      const end = Math.min(start + chunkSize, file.size);
-      const blob = file.slice(start, end);
-      const name = `${baseName}_part${String(i + 1).padStart(3, '0')}${ext}`;
-      zip.file(name, blob);
-      resultChunks.push({ name, size: end - start, blob });
-      setProgress(Math.round(((i + 1) / totalChunks) * 100));
-      if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
-    }
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * chunkSize;
+        const end = Math.min(start + chunkSize, file.size);
+        const blob = file.slice(start, end);
+        const name = `${baseName}_part${String(i + 1).padStart(3, '0')}${ext}`;
+        zip.file(name, blob);
+        resultChunks.push({ name, size: end - start, blob });
+        setProgress(Math.round(((i + 1) / totalChunks) * 100));
+        if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
+      }
 
-    zipRef.current = zip;
-    setChunks(resultChunks);
-    setIsSplitting(false);
-    toast({ title: '분할 완료', description: `${resultChunks.length}개 파일로 분할되었습니다.` });
+      zipRef.current = zip;
+      setChunks(resultChunks);
+      toast({ title: '분할 완료', description: `${resultChunks.length}개 파일로 분할되었습니다.` });
 
-    // Upload original file to storage
-    let filePath = '';
-    if (user) {
-      const storagePath = `${user.id}/${Date.now()}_${file.name}`;
+      const currentUser = await resolveUser();
+      if (!currentUser) {
+        toast({
+          title: '이력 저장 실패',
+          description: '로그인 정보를 확인한 뒤 다시 시도해주세요.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      let filePath = '';
+      const storagePath = `${currentUser.id}/${Date.now()}_${file.name}`;
       const { error: uploadErr } = await supabase.storage.from('split-files').upload(storagePath, file);
       if (uploadErr) {
         console.error('Storage upload failed:', uploadErr);
       } else {
         filePath = storagePath;
       }
+
+      await saveHistory(file.name, file.size, chunkSizeMB, resultChunks.length, filePath, currentUser.id);
+    } catch (error) {
+      console.error('Split failed:', error);
+      toast({
+        title: '분할 실패',
+        description: error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSplitting(false);
     }
-    await saveHistory(file.name, file.size, chunkSizeMB, resultChunks.length, filePath);
-  }, [file, chunkSizeMB, saveHistory, user]);
+  }, [authLoading, chunkSizeMB, file, resolveUser, saveHistory]);
 
   const handleDownloadAll = useCallback(async () => {
     if (!zipRef.current || !file) return;
@@ -219,7 +275,6 @@ const FileSplitter = () => {
     const chunk = chunks[index];
     if (!chunk) return;
     const text = await chunk.blob.text();
-    // Store in sessionStorage and navigate to analysis page
     sessionStorage.setItem('splitter_log_content', text);
     sessionStorage.setItem('splitter_log_filename', chunk.name);
     navigate('/');
@@ -324,9 +379,9 @@ const FileSplitter = () => {
               </CardContent>
             </Card>
 
-            <Button className="w-full" size="lg" onClick={handleSplit} disabled={isSplitting}>
+            <Button className="w-full" size="lg" onClick={handleSplit} disabled={isSplitting || authLoading}>
               <Scissors className="w-4 h-4 mr-2" />
-              {isSplitting ? '분할 중...' : '파일 분할하기'}
+              {authLoading ? '로그인 확인 중...' : isSplitting ? '분할 중...' : '파일 분할하기'}
             </Button>
 
             {(isSplitting || progress > 0) && <Progress value={progress} className="w-full" />}
