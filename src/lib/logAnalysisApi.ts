@@ -142,7 +142,7 @@ export async function analyzeLargeLog(
     })
     .slice(0, 5);
 
-  // Build detailed logs: ±100 lines around each suspect interval
+  const detailedParts: string[] = [];
   const _lineMap = new Map(filterResult.rawLineIndex);
 
   for (const suspect of topIntervals) {
