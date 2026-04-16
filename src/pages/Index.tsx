@@ -9,15 +9,18 @@ import LogViewer from '@/components/LogViewer';
 import AnalysisPanel from '@/components/AnalysisPanel';
 import ChatInterface from '@/components/ChatInterface';
 import AnalysisHistory from '@/components/AnalysisHistory';
+import AnalysisProgressBar from '@/components/AnalysisProgressBar';
 import { mockLogText, type AnalysisResult } from '@/data/mockLogs';
-import { analyzeLog } from '@/lib/logAnalysisApi';
+import { analyzeLog, analyzeLargeLog, type AnalysisProgress } from '@/lib/logAnalysisApi';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
+const LARGE_FILE_THRESHOLD = 50 * 1024 * 1024; // 50MB
+
 const generateMarkdownReport = (results: AnalysisResult[], stats: { critical: number; warning: number; info: number; totalLines: number }) => {
   const now = new Date().toLocaleString('ko-KR');
-  let md = `# 🛡️ Middleware AI Guard - 장애 분석 보고서\n\n`;
+  let md = `# 🛡️ LogMind - 장애 분석 보고서\n\n`;
   md += `**생성일시:** ${now}\n\n`;
   md += `---\n\n## 📊 요약\n\n`;
   md += `| 구분 | 건수 |\n|------|------|\n`;
@@ -53,6 +56,8 @@ const Index = () => {
   const [stats, setStats] = useState<Stats>({ critical: 0, warning: 0, info: 0, totalLines: 0 });
   const [highlightedLines, setHighlightedLines] = useState<number[]>([]);
   const [currentFilename, setCurrentFilename] = useState('');
+  const [analysisProgress, setAnalysisProgress] = useState<AnalysisProgress | null>(null);
+  const [currentFile, setCurrentFile] = useState<File | null>(null);
   const historyKeyRef = useRef(0);
   const splitterProcessed = useRef(false);
 
@@ -61,7 +66,7 @@ const Index = () => {
     const { error } = await supabase.from('analysis_history').insert({
       user_id: user.id,
       filename,
-      log_content: content,
+      log_content: content.slice(0, 500000), // Limit stored content for large files
       results: results as any,
       stats: analysisStats as any,
     });
@@ -72,15 +77,29 @@ const Index = () => {
     }
   }, [user]);
 
-  const runAnalysis = useCallback(async (content: string, filename: string) => {
+  const runAnalysis = useCallback(async (content: string, filename: string, file?: File) => {
     setIsAnalyzing(true);
+    setAnalysisProgress(null);
     try {
-      const result = await analyzeLog(content);
-      setAnalysisResults(result.analyses);
-      setStats(result.stats);
-      toast({ title: '분석 완료', description: `${result.analyses.length}개의 장애 패턴을 발견했습니다.` });
-      await saveToHistory(filename, content, result.analyses, result.stats);
+      const isLargeFile = file && file.size >= LARGE_FILE_THRESHOLD;
+
+      if (isLargeFile) {
+        // 2-stage analysis for large files
+        const result = await analyzeLargeLog(file, (p) => setAnalysisProgress(p));
+        setAnalysisResults(result.analyses);
+        setStats(result.stats);
+        toast({ title: '분석 완료', description: `${result.analyses.length}개의 장애 패턴을 발견했습니다. (2단계 분석)` });
+        await saveToHistory(filename, content.slice(0, 500000), result.analyses, result.stats);
+      } else {
+        // Direct analysis for small files
+        const result = await analyzeLog(content);
+        setAnalysisResults(result.analyses);
+        setStats(result.stats);
+        toast({ title: '분석 완료', description: `${result.analyses.length}개의 장애 패턴을 발견했습니다.` });
+        await saveToHistory(filename, content, result.analyses, result.stats);
+      }
     } catch (e) {
+      setAnalysisProgress({ phase: 'error', percent: 0, message: e instanceof Error ? e.message : '알 수 없는 오류' });
       toast({
         title: 'AI 분석 오류',
         description: e instanceof Error ? e.message : '알 수 없는 오류',
@@ -91,12 +110,13 @@ const Index = () => {
     }
   }, [saveToHistory]);
 
-  const handleLogLoaded = useCallback((content: string, filename: string) => {
+  const handleLogLoaded = useCallback((content: string, filename: string, file?: File) => {
     setLogContent(content);
     setHasLog(true);
     setCurrentFilename(filename);
+    setCurrentFile(file || null);
     setAnalysisResults([]);
-    runAnalysis(content, filename);
+    runAnalysis(content, filename, file);
   }, [runAnalysis]);
 
   // Check for chunk from FileSplitter
@@ -116,6 +136,7 @@ const Index = () => {
     setLogContent(mockLogText);
     setHasLog(true);
     setCurrentFilename('demo_log.log');
+    setCurrentFile(null);
     setAnalysisResults([]);
     runAnalysis(mockLogText, 'demo_log.log');
   }, [runAnalysis]);
@@ -127,6 +148,8 @@ const Index = () => {
     setStats({ critical: 0, warning: 0, info: 0, totalLines: 0 });
     setHighlightedLines([]);
     setCurrentFilename('');
+    setCurrentFile(null);
+    setAnalysisProgress(null);
   }, []);
 
   const handleLoadHistory = useCallback((content: string, results: AnalysisResult[], historyStats: Stats, filename: string) => {
@@ -189,6 +212,11 @@ const Index = () => {
             </Button>
           </div>
         </div>
+
+        {/* Analysis Progress */}
+        {isAnalyzing && analysisProgress && (
+          <AnalysisProgressBar progress={analysisProgress} />
+        )}
 
         {/* History */}
         {!hasLog && <AnalysisHistory key={historyKeyRef.current} onLoad={handleLoadHistory} />}
