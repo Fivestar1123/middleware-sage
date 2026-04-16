@@ -3,7 +3,7 @@ import { Upload, FileText, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface LogUploaderProps {
-  onLogLoaded: (content: string, filename: string) => void;
+  onLogLoaded: (content: string, filename: string, file?: File) => void;
   onDemoLoad: () => void;
   isAnalyzing: boolean;
 }
@@ -11,16 +11,22 @@ interface LogUploaderProps {
 const LogUploader = ({ onLogLoaded, onDemoLoad, isAnalyzing }: LogUploaderProps) => {
   const [isDragging, setIsDragging] = useState(false);
 
-  const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+  const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5GB (large files use streaming)
 
   const handleFile = useCallback((file: File) => {
     if (file.size > MAX_FILE_SIZE) {
-      alert('파일 크기가 50MB를 초과합니다. 더 작은 파일을 업로드해주세요.');
+      // For large files, only read preview (first 200KB) and pass File object
+      const previewSlice = file.slice(0, 200 * 1024);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        onLogLoaded(e.target?.result as string, file.name, file);
+      };
+      reader.readAsText(previewSlice);
       return;
     }
     const reader = new FileReader();
     reader.onload = (e) => {
-      onLogLoaded(e.target?.result as string, file.name);
+      onLogLoaded(e.target?.result as string, file.name, file);
     };
     reader.readAsText(file);
   }, [onLogLoaded]);
@@ -58,7 +64,7 @@ const LogUploader = ({ onLogLoaded, onDemoLoad, isAnalyzing }: LogUploaderProps)
     >
       <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
       <p className="text-sm text-foreground font-medium">로그 파일을 드래그하거나 클릭하여 업로드</p>
-      <p className="text-xs text-muted-foreground mt-1">.log, .txt 파일 지원 (최대 50MB)</p>
+      <p className="text-xs text-muted-foreground mt-1">.log, .txt 파일 지원 (대용량 파일은 자동 전처리)</p>
       <input id="log-file-input" type="file" accept=".log,.txt" className="hidden" onChange={handleFileInput} />
       <Button
         variant="outline"
