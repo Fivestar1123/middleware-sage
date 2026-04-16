@@ -16,7 +16,7 @@ const DashboardHeader = () => {
         </div>
         <div>
           <h1 className="text-lg font-bold font-heading text-foreground tracking-tight">
-            Middleware AI Guard
+            LogMind
           </h1>
           <p className="text-xs text-muted-foreground">미들웨어 장애 분석 및 조치 가이드</p>
         </div>
