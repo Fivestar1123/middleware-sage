@@ -31,6 +31,10 @@ const ChatInterface = ({ logContent, onMessagesChange }: ChatInterfaceProps) => 
     }
   }, [messages]);
 
+  useEffect(() => {
+    onMessagesChange?.(messages);
+  }, [messages, onMessagesChange]);
+
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
     const userMsg = input.trim();
