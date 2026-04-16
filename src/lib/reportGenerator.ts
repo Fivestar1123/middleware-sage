@@ -279,6 +279,11 @@ export async function generateDocxReport(data: ReportData) {
     new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun({ text: '2. AI Analysis Results', bold: true })] }),
   );
 
+  const textToParagraphs = (text: string, opts: { size: number; color: string }) =>
+    text.replace(/\\n/g, '\n').split('\n').filter(l => l.trim()).map(
+      line => new Paragraph({ children: [new TextRun({ text: line.trim(), size: opts.size, color: opts.color })] })
+    );
+
   data.analysisResults.forEach(r => {
     const color = severityColor[r.severity] || '666666';
     children.push(
@@ -287,11 +292,11 @@ export async function generateDocxReport(data: ReportData) {
         children: [new TextRun({ text: `[${r.severity.toUpperCase()}] ${r.title}`, color, bold: true })],
       }),
       new Paragraph({ children: [new TextRun({ text: 'Root Cause:', bold: true, size: 20 })] }),
-      new Paragraph({ children: [new TextRun({ text: r.cause, size: 20, color: '444444' })] }),
+      ...textToParagraphs(r.cause, { size: 20, color: '444444' }),
       new Paragraph({ children: [new TextRun({ text: 'Recommendation:', bold: true, size: 20 })] }),
-      new Paragraph({ children: [new TextRun({ text: r.recommendation, size: 20, color: '444444' })] }),
+      ...textToParagraphs(r.recommendation, { size: 20, color: '444444' }),
       new Paragraph({ children: [new TextRun({ text: 'Impact:', bold: true, size: 20 })] }),
-      new Paragraph({ children: [new TextRun({ text: r.impact, size: 20, color: '444444' })] }),
+      ...textToParagraphs(r.impact, { size: 20, color: '444444' }),
       new Paragraph({ children: [new TextRun({ text: `Related Lines: ${r.relatedLines.join(', ')}`, size: 16, color: '999999' })] }),
       new Paragraph({ children: [] }),
     );
@@ -304,14 +309,17 @@ export async function generateDocxReport(data: ReportData) {
     );
     chatHistory.forEach(msg => {
       const isUser = msg.role === 'user';
-      children.push(
-        new Paragraph({
-          children: [
-            new TextRun({ text: isUser ? '[User] ' : '[AI] ', bold: true, size: 20, color: isUser ? '1E40AF' : '3B82F6' }),
-            new TextRun({ text: msg.content, size: 20, color: '444444' }),
-          ],
-        }),
-      );
+      const lines = msg.content.replace(/\\n/g, '\n').split('\n').filter(l => l.trim());
+      lines.forEach((line, i) => {
+        children.push(
+          new Paragraph({
+            children: [
+              ...(i === 0 ? [new TextRun({ text: isUser ? '[User] ' : '[AI] ', bold: true, size: 20, color: isUser ? '1E40AF' : '3B82F6' })] : []),
+              new TextRun({ text: line.trim(), size: 20, color: '444444' }),
+            ],
+          }),
+        );
+      });
     });
     children.push(new Paragraph({ children: [] }));
   }
@@ -328,7 +336,7 @@ export async function generateDocxReport(data: ReportData) {
   if (criticals.length > 0) {
     children.push(new Paragraph({ children: [new TextRun({ text: 'Immediate Actions Required:', bold: true, size: 22, color: 'DC2626' })] }));
     criticals.forEach((r, i) => {
-      children.push(new Paragraph({ children: [new TextRun({ text: `${i + 1}. ${r.recommendation}`, size: 20, color: '444444' })] }));
+      textToParagraphs(`${i + 1}. ${r.recommendation}`, { size: 20, color: '444444' }).forEach(p => children.push(p));
     });
     children.push(new Paragraph({ children: [] }));
   }
@@ -336,7 +344,7 @@ export async function generateDocxReport(data: ReportData) {
   if (warnings.length > 0) {
     children.push(new Paragraph({ children: [new TextRun({ text: 'Prevention Measures:', bold: true, size: 22, color: 'B48200' })] }));
     warnings.forEach((r, i) => {
-      children.push(new Paragraph({ children: [new TextRun({ text: `${i + 1}. ${r.recommendation}`, size: 20, color: '444444' })] }));
+      textToParagraphs(`${i + 1}. ${r.recommendation}`, { size: 20, color: '444444' }).forEach(p => children.push(p));
     });
   }
 
