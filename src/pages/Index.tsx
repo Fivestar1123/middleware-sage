@@ -192,26 +192,13 @@ const Index = () => {
             ) : (
               <LogUploader onLogLoaded={handleLogLoaded} onDemoLoad={handleDemoLoad} isAnalyzing={isAnalyzing} />
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full"
+            <ReportExportButton
+              filename={currentFilename}
+              analysisResults={analysisResults}
+              stats={stats}
+              chatMessages={chatMessages}
               disabled={!hasLog || analysisResults.length === 0}
-              onClick={() => {
-                const md = generateMarkdownReport(analysisResults, stats);
-                const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `장애분석보고서_${new Date().toISOString().slice(0, 10)}.md`;
-                a.click();
-                URL.revokeObjectURL(url);
-                toast({ title: '보고서 다운로드', description: 'Markdown 보고서가 다운로드되었습니다.' });
-              }}
-            >
-              <FileDown className="w-3.5 h-3.5 mr-1" />
-              보고서 생성 (Markdown)
-            </Button>
+            />
           </div>
         </div>
 
@@ -240,7 +227,7 @@ const Index = () => {
 
         {/* Chat */}
         {hasLog && !isAnalyzing && analysisResults.length > 0 && (
-          <ChatInterface logContent={logContent} />
+          <ChatInterface logContent={logContent} onMessagesChange={setChatMessages} />
         )}
       </main>
     </div>
