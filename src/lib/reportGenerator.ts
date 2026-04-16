@@ -104,9 +104,16 @@ export async function generatePdfReport(data: ReportData) {
       doc.text(s.label, margin + 2, y);
       y += 4;
       doc.setTextColor(80, 80, 80);
-      const lines = doc.splitTextToSize(s.text, contentWidth - 4);
-      doc.text(lines, margin + 4, y);
-      y += lines.length * 3.5 + 2;
+      // Split by literal \n first, then wrap each paragraph
+      const paragraphs = s.text.replace(/\\n/g, '\n').split('\n');
+      paragraphs.forEach(para => {
+        const trimmed = para.trim();
+        if (!trimmed) { y += 2; return; }
+        checkPage(10);
+        const lines = doc.splitTextToSize(trimmed, contentWidth - 4);
+        doc.text(lines, margin + 4, y);
+        y += lines.length * 3.5 + 2;
+      });
     });
 
     doc.setTextColor(150, 150, 150);
