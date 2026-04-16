@@ -1,11 +1,12 @@
 import { useState, useCallback } from 'react';
-import { Upload, FileText, Loader2, Image } from 'lucide-react';
+import { Upload, FileText, Loader2, Image, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 
 interface LogUploaderProps {
   onLogLoaded: (content: string, filename: string, file?: File) => void;
+  onMultiLogLoaded?: (files: File[]) => void;
   onDemoLoad: () => void;
   isAnalyzing: boolean;
 }
@@ -13,7 +14,7 @@ interface LogUploaderProps {
 const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'];
 const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024;
 
-const LogUploader = ({ onLogLoaded, onDemoLoad, isAnalyzing }: LogUploaderProps) => {
+const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }: LogUploaderProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
 
@@ -60,39 +61,56 @@ const LogUploader = ({ onLogLoaded, onDemoLoad, isAnalyzing }: LogUploaderProps)
     }
   }, [onLogLoaded]);
 
-  const handleFile = useCallback((file: File) => {
-    if (isImageFile(file)) {
-      processImageFile(file);
+  const handleFiles = useCallback((files: FileList | File[]) => {
+    const fileArray = Array.from(files).filter(f => !isImageFile(f));
+    const imageFiles = Array.from(files).filter(f => isImageFile(f));
+
+    // Handle image files via OCR (single only)
+    if (imageFiles.length > 0) {
+      processImageFile(imageFiles[0]);
       return;
     }
 
-    if (file.size > MAX_FILE_SIZE) {
-      const previewSlice = file.slice(0, 200 * 1024);
+    // Multi-file: 2 log files → correlated analysis
+    if (fileArray.length >= 2 && onMultiLogLoaded) {
+      toast({ title: '다중 로그 감지', description: `${fileArray.length}개 파일을 통합 분석합니다.` });
+      onMultiLogLoaded(fileArray.slice(0, 2));
+      return;
+    }
+
+    // Single file
+    if (fileArray.length === 1) {
+      const file = fileArray[0];
+      if (file.size > MAX_FILE_SIZE) {
+        const previewSlice = file.slice(0, 200 * 1024);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          onLogLoaded(e.target?.result as string, file.name, file);
+        };
+        reader.readAsText(previewSlice);
+        return;
+      }
       const reader = new FileReader();
       reader.onload = (e) => {
         onLogLoaded(e.target?.result as string, file.name, file);
       };
-      reader.readAsText(previewSlice);
-      return;
+      reader.readAsText(file);
     }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      onLogLoaded(e.target?.result as string, file.name, file);
-    };
-    reader.readAsText(file);
-  }, [onLogLoaded, processImageFile]);
+  }, [onLogLoaded, onMultiLogLoaded, processImageFile]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
-  }, [handleFile]);
+    if (e.dataTransfer.files.length > 0) {
+      handleFiles(e.dataTransfer.files);
+    }
+  }, [handleFiles]);
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleFile(file);
-  }, [handleFile]);
+    if (e.target.files && e.target.files.length > 0) {
+      handleFiles(e.target.files);
+    }
+  }, [handleFiles]);
 
   if (isAnalyzing || isOcrProcessing) {
     return (
@@ -116,9 +134,19 @@ const LogUploader = ({ onLogLoaded, onDemoLoad, isAnalyzing }: LogUploaderProps)
       <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
       <p className="text-sm text-foreground font-medium">로그 파일을 드래그하거나 클릭하여 업로드</p>
       <p className="text-xs text-muted-foreground mt-1">
-        .log, .txt 파일 지원 | <Image className="w-3 h-3 inline" /> 이미지(PNG, JPG) OCR 지원
+        .log, .txt 파일 지원 | <Image className="w-3 h-3 inline" /> 이미지 OCR 지원
       </p>
-      <input id="log-file-input" type="file" accept=".log,.txt,.png,.jpg,.jpeg,.gif,.bmp,.webp" className="hidden" onChange={handleFileInput} />
+      <p className="text-xs text-primary/70 mt-0.5">
+        <Plus className="w-3 h-3 inline" /> 2개 파일 동시 업로드 시 통합 상관분석
+      </p>
+      <input
+        id="log-file-input"
+        type="file"
+        accept=".log,.txt,.png,.jpg,.jpeg,.gif,.bmp,.webp"
+        className="hidden"
+        onChange={handleFileInput}
+        multiple
+      />
       <Button
         variant="outline"
         size="sm"
