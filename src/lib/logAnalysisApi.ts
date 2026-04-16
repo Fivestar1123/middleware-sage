@@ -1,5 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import type { AnalysisResult } from '@/data/mockLogs';
+import { correlateIntervals, type CorrelatedPair } from './logCorrelation';
 
 /* ─── Types ─── */
 
@@ -48,6 +49,7 @@ export type AnalysisPhase =
   | 'filtering'
   | 'stage1'
   | 'stage2'
+  | 'correlating'
   | 'done'
   | 'error';
 
@@ -79,10 +81,7 @@ export async function analyzeLog(logContent: string): Promise<AnalysisResponse> 
   if (error) throw new Error(error.message || 'Analysis failed');
   if (data?.error) throw new Error(data.error);
   const result = data as AnalysisResponse;
-
-  // Store analysis results as embeddings (fire-and-forget)
   storeAnalysisEmbeddings(result.analyses).catch(console.error);
-
   return result;
 }
 
@@ -92,7 +91,6 @@ export async function analyzeLargeLog(
   file: File,
   onProgress: (p: AnalysisProgress) => void,
 ): Promise<AnalysisResponse> {
-  // Phase 1: Filter in Web Worker
   onProgress({ phase: 'filtering', percent: 0, message: '데이터 추출 및 필터링 중...' });
 
   const filterResult = await runWorkerFilter(file, (p) => {
@@ -107,7 +105,7 @@ export async function analyzeLargeLog(
     };
   }
 
-  // Phase 2: Stage 1 - Identify suspect intervals
+  // Stage 1
   onProgress({ phase: 'stage1', percent: 0, message: '1차 분석: 의심 구간 식별 중...' });
 
   const stage1Body = {
@@ -117,7 +115,7 @@ export async function analyzeLargeLog(
       start: iv.start,
       end: iv.end,
       errorCount: iv.errorCount,
-      lines: iv.lines.slice(0, 30), // Send sample lines
+      lines: iv.lines.slice(0, 30),
     })),
   };
 
@@ -131,10 +129,9 @@ export async function analyzeLargeLog(
   const stage1: Stage1Result = stage1Data;
   onProgress({ phase: 'stage1', percent: 100, message: `${stage1.suspectIntervals.length}개 의심 구간 식별 완료` });
 
-  // Phase 3: Stage 2 - Deep analysis of top suspect intervals
+  // Stage 2
   onProgress({ phase: 'stage2', percent: 0, message: '2차 분석: 상세 원인 분석 중...' });
 
-  // Get top priority intervals (max 5)
   const topIntervals = stage1.suspectIntervals
     .sort((a, b) => {
       const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
@@ -143,12 +140,9 @@ export async function analyzeLargeLog(
     .slice(0, 5);
 
   const detailedParts: string[] = [];
-  const _lineMap = new Map(filterResult.rawLineIndex);
-
   for (const suspect of topIntervals) {
     const interval = filterResult.intervals[suspect.intervalIndex];
     if (!interval) continue;
-
     const lines = interval.lines.map(l => `L${l.lineNumber}: ${l.text}`).join('\n');
     detailedParts.push(
       `=== 의심 구간 [${suspect.timeRange}] (우선순위: ${suspect.priority}) ===\n사유: ${suspect.reason}\n\n${lines}`
@@ -169,11 +163,104 @@ export async function analyzeLargeLog(
   onProgress({ phase: 'done', percent: 100, message: '분석 완료' });
 
   const result = stage2Data as AnalysisResponse;
-
-  // Store analysis results as embeddings (fire-and-forget)
   storeAnalysisEmbeddings(result.analyses).catch(console.error);
-
   return result;
+}
+
+/* ─── Multi-file correlated analysis ─── */
+
+export async function analyzeCorrelatedLogs(
+  fileA: File,
+  fileB: File,
+  onProgress: (p: AnalysisProgress) => void,
+): Promise<AnalysisResponse> {
+  // Phase 1: Filter both files in parallel via Web Workers
+  onProgress({ phase: 'filtering', percent: 0, message: `파일 2개 동시 필터링 중...` });
+
+  const [filterA, filterB] = await Promise.all([
+    runWorkerFilter(fileA, (p) => {
+      onProgress({ phase: 'filtering', percent: Math.round(p.percent / 2), message: `[${fileA.name}] ${p.phase}` });
+    }),
+    runWorkerFilter(fileB, (p) => {
+      onProgress({ phase: 'filtering', percent: 50 + Math.round(p.percent / 2), message: `[${fileB.name}] ${p.phase}` });
+    }),
+  ]);
+
+  onProgress({ phase: 'filtering', percent: 100, message: '필터링 완료' });
+
+  // Phase 2: Correlate intervals by timestamp
+  onProgress({ phase: 'correlating', percent: 0, message: '타임스탬프 기반 상관관계 매칭 중...' });
+
+  const pairs = correlateIntervals(fileA.name, filterA, fileB.name, filterB);
+
+  if (pairs.length === 0 && filterA.intervals.length === 0 && filterB.intervals.length === 0) {
+    onProgress({ phase: 'done', percent: 100, message: '에러 구간이 발견되지 않았습니다.' });
+    return {
+      analyses: [],
+      stats: { critical: 0, warning: 0, info: 0, totalLines: filterA.totalLines + filterB.totalLines },
+    };
+  }
+
+  onProgress({ phase: 'correlating', percent: 100, message: `${pairs.length}개 상관 구간 매칭 완료` });
+
+  // Phase 3: Send correlated pairs to AI (stage 3)
+  onProgress({ phase: 'stage2', percent: 0, message: '통합 분석: AI 상관관계 분석 중...' });
+
+  const correlatedData = buildCorrelatedPayload(pairs, fileA.name, filterA, fileB.name, filterB);
+
+  const { data, error } = await supabase.functions.invoke('analyze-log-v2', {
+    body: {
+      stage: 3,
+      correlatedLogs: correlatedData,
+      fileNames: [fileA.name, fileB.name],
+      summaries: [filterA.summary, filterB.summary],
+      totalLines: filterA.totalLines + filterB.totalLines,
+    },
+  });
+
+  if (error) throw new Error(error.message || 'Correlated analysis failed');
+  if (data?.error) throw new Error(data.error);
+
+  onProgress({ phase: 'done', percent: 100, message: '통합 분석 완료' });
+
+  const result = data as AnalysisResponse;
+  storeAnalysisEmbeddings(result.analyses).catch(console.error);
+  return result;
+}
+
+function buildCorrelatedPayload(
+  pairs: CorrelatedPair[],
+  nameA: string,
+  filterA: FilterResult,
+  nameB: string,
+  filterB: FilterResult,
+): string {
+  const parts: string[] = [];
+
+  if (pairs.length > 0) {
+    for (const pair of pairs.slice(0, 5)) {
+      const linesA = pair.fileA.interval.lines.slice(0, 50).map(l => `  [${nameA}] L${l.lineNumber}: ${l.text}`).join('\n');
+      const linesB = pair.fileB.interval.lines.slice(0, 50).map(l => `  [${nameB}] L${l.lineNumber}: ${l.text}`).join('\n');
+      parts.push(
+        `=== 상관 구간 [${pair.overlapStart} ~ ${pair.overlapEnd}] (에러 ${pair.combinedErrorCount}건) ===\n` +
+        `--- ${nameA} ---\n${linesA}\n--- ${nameB} ---\n${linesB}`
+      );
+    }
+  } else {
+    // No direct correlation — send top intervals from each file independently
+    const topA = filterA.intervals.slice(0, 3);
+    const topB = filterB.intervals.slice(0, 3);
+    for (const iv of topA) {
+      const lines = iv.lines.slice(0, 40).map(l => `  [${nameA}] L${l.lineNumber}: ${l.text}`).join('\n');
+      parts.push(`=== ${nameA} 주요 구간 [${iv.start} ~ ${iv.end}] (에러 ${iv.errorCount}건) ===\n${lines}`);
+    }
+    for (const iv of topB) {
+      const lines = iv.lines.slice(0, 40).map(l => `  [${nameB}] L${l.lineNumber}: ${l.text}`).join('\n');
+      parts.push(`=== ${nameB} 주요 구간 [${iv.start} ~ ${iv.end}] (에러 ${iv.errorCount}건) ===\n${lines}`);
+    }
+  }
+
+  return parts.join('\n\n---\n\n');
 }
 
 /* ─── Web Worker wrapper ─── */
@@ -216,7 +303,7 @@ function runWorkerFilter(
   });
 }
 
-/* ─── Chat streaming (unchanged) ─── */
+/* ─── Chat streaming ─── */
 
 type Msg = { role: 'user' | 'assistant'; content: string };
 

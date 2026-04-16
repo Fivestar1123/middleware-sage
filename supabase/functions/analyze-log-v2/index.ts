@@ -32,6 +32,26 @@ const STAGE2_PROMPT = `너는 10년차 시니어 미들웨어 엔지니어야. J
 
 반드시 JSON만 반환해.`;
 
+const STAGE3_PROMPT = `너는 10년차 시니어 미들웨어 엔지니어야. JEUS, WebtoB, Apache, Tomcat 등 공공기관 미들웨어 로그를 분석하는 전문가야.
+
+두 개의 서로 다른 로그 파일에서 추출된 에러 구간이 제공된다. 타임스탬프가 겹치는 구간은 상관관계가 있을 수 있다.
+
+네 역할:
+1. 두 파일의 에러 구간 간 **인과관계**를 분석 (예: WebtoB 커넥션 끊김 → JEUS OOM)
+2. 각 파일의 독립적인 문제도 별도로 분석
+3. 두 시스템 간의 **연쇄 장애** 가능성을 판단
+4. 통합 조치 가이드 제시 (어느 시스템부터 조치해야 하는지 우선순위 포함)
+
+분석 시 특히 주의할 패턴:
+- OutOfMemoryError, GC overhead limit exceeded → 메모리 누수
+- abnormal closed, connection reset → 비정상 세션 종료  
+- not closed, connection pool → 커넥션 풀 이슈
+- Thread pool exceeded → 스레드 풀 포화
+- timeout → 타임아웃
+- Full GC, STW → GC 관련 장애
+
+반드시 JSON만 반환해.`;
+
 const stage1Tools = [
   {
     type: "function",
@@ -250,7 +270,6 @@ serve(async (req) => {
         });
       }
 
-      // Run similar case lookup in PARALLEL with building the prompt
       const [similarCases] = await Promise.all([
         findSimilarCases(detailedLogs.slice(0, 2000)),
       ]);
@@ -262,8 +281,37 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
 
+    } else if (stage === 3) {
+      // Correlated multi-file analysis
+      const { correlatedLogs, fileNames, summaries, totalLines } = body;
+      if (!correlatedLogs) {
+        return new Response(JSON.stringify({ error: "correlatedLogs required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const [similarCases] = await Promise.all([
+        findSimilarCases(correlatedLogs.slice(0, 2000)),
+      ]);
+
+      const userContent = `두 개의 로그 파일을 통합 분석해줘.
+
+파일 목록: ${(fileNames || []).join(', ')}
+요약:
+${(summaries || []).map((s: string, i: number) => `  [${(fileNames || [])[i] || `파일${i+1}`}] ${s}`).join('\n')}
+총 라인 수: ${totalLines}
+
+아래는 타임스탬프 기반으로 매칭된 상관 구간 또는 주요 에러 구간이야:
+
+${correlatedLogs}${similarCases}`;
+
+      const result = await callAI(LOVABLE_API_KEY, STAGE3_PROMPT, userContent, stage2Tools, "log_analysis_result");
+      return new Response(JSON.stringify(result), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+
     } else {
-      return new Response(JSON.stringify({ error: "stage must be 1 or 2" }), {
+      return new Response(JSON.stringify({ error: "stage must be 1, 2, or 3" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
