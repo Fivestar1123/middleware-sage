@@ -1,5 +1,5 @@
 import { Progress } from '@/components/ui/progress';
-import { Loader2, CheckCircle2, AlertCircle, Filter, Brain, Search } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle, Filter, Brain, Search, GitCompareArrows } from 'lucide-react';
 import type { AnalysisProgress } from '@/lib/logAnalysisApi';
 
 interface AnalysisProgressBarProps {
@@ -8,11 +8,14 @@ interface AnalysisProgressBarProps {
 
 const phaseConfig = {
   filtering: { icon: Filter, label: '전처리', color: 'text-blue-400' },
+  correlating: { icon: GitCompareArrows, label: '상관분석', color: 'text-cyan-400' },
   stage1: { icon: Search, label: '1차 분석', color: 'text-yellow-400' },
   stage2: { icon: Brain, label: '2차 분석', color: 'text-purple-400' },
   done: { icon: CheckCircle2, label: '완료', color: 'text-green-400' },
   error: { icon: AlertCircle, label: '오류', color: 'text-destructive' },
 };
+
+const PHASE_ORDER = ['filtering', 'correlating', 'stage1', 'stage2', 'done'] as const;
 
 const AnalysisProgressBar = ({ progress }: AnalysisProgressBarProps) => {
   if (!progress) return null;
@@ -21,34 +24,45 @@ const AnalysisProgressBar = ({ progress }: AnalysisProgressBarProps) => {
   const Icon = config.icon;
   const isActive = progress.phase !== 'done' && progress.phase !== 'error';
 
-  // Overall progress: filtering=0-40%, stage1=40-70%, stage2=70-100%
+  // Determine which phases to show based on whether correlating is used
+  const hasCorrelating = progress.phase === 'correlating' || false;
+  const phases = hasCorrelating
+    ? (['filtering', 'correlating', 'stage2', 'done'] as const)
+    : (['filtering', 'stage1', 'stage2', 'done'] as const);
+
+  // Overall progress calculation
   let overallPercent = 0;
   switch (progress.phase) {
     case 'filtering':
       overallPercent = Math.round(progress.percent * 0.4);
       break;
+    case 'correlating':
+      overallPercent = 40 + Math.round(progress.percent * 0.2);
+      break;
     case 'stage1':
       overallPercent = 40 + Math.round(progress.percent * 0.3);
       break;
     case 'stage2':
-      overallPercent = 70 + Math.round(progress.percent * 0.3);
+      overallPercent = hasCorrelating
+        ? 60 + Math.round(progress.percent * 0.4)
+        : 70 + Math.round(progress.percent * 0.3);
       break;
     case 'done':
       overallPercent = 100;
       break;
   }
 
+  const allPhases = PHASE_ORDER as readonly string[];
+
   return (
     <div className="bg-card border border-border rounded-lg p-4 space-y-3">
       {/* Phase indicators */}
       <div className="flex items-center justify-between text-xs">
-        {(['filtering', 'stage1', 'stage2', 'done'] as const).map((phase, idx) => {
+        {phases.map((phase, idx) => {
           const pc = phaseConfig[phase];
           const PhaseIcon = pc.icon;
           const isCurrent = progress.phase === phase;
-          const isPast =
-            ['filtering', 'stage1', 'stage2', 'done'].indexOf(progress.phase) >
-            ['filtering', 'stage1', 'stage2', 'done'].indexOf(phase);
+          const isPast = allPhases.indexOf(progress.phase) > allPhases.indexOf(phase);
 
           return (
             <div key={phase} className="flex items-center gap-1.5">
