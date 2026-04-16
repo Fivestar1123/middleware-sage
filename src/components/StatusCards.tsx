@@ -20,7 +20,7 @@ const StatusCards = ({ stats }: StatusCardsProps) => {
   ];
 
   return (
-    <div className="grid grid-cols-4 gap-3">
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
       {cards.map((card) => (
         <div key={card.label} className={`rounded-lg border p-4 ${card.colorClass}`}>
           <div className="flex items-center justify-between">
