@@ -1,4 +1,5 @@
 import jsPDF from 'jspdf';
+import { notoSansKRBase64 } from './notoSansKR';
 import autoTable from 'jspdf-autotable';
 import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, HeadingLevel, BorderStyle, WidthType, ShadingType } from 'docx';
 import { saveAs } from 'file-saver';
@@ -24,8 +25,10 @@ export async function generatePdfReport(data: ReportData) {
   const contentWidth = pageWidth - margin * 2;
   let y = margin;
 
-  // Load Korean font support
-  doc.setFont('helvetica');
+  // Embed Korean font
+  doc.addFileToVFS('NotoSansKR-Regular.otf', notoSansKRBase64);
+  doc.addFont('NotoSansKR-Regular.otf', 'NotoSansKR', 'normal');
+  doc.setFont('NotoSansKR');
 
   const addPage = () => { doc.addPage(); y = margin; };
   const checkPage = (needed: number) => { if (y + needed > 280) addPage(); };
@@ -54,8 +57,8 @@ export async function generatePdfReport(data: ReportData) {
     startY: y,
     margin: { left: margin, right: margin },
     theme: 'grid',
-    headStyles: { fillColor: [30, 64, 175], fontSize: 9 },
-    bodyStyles: { fontSize: 9 },
+    headStyles: { fillColor: [30, 64, 175], fontSize: 9, font: 'NotoSansKR' },
+    bodyStyles: { fontSize: 9, font: 'NotoSansKR' },
     columnStyles: { 0: { cellWidth: 40, fontStyle: 'bold' } },
     body: [
       ['Report Date', now()],
