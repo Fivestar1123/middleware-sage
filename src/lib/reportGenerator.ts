@@ -104,9 +104,16 @@ export async function generatePdfReport(data: ReportData) {
       doc.text(s.label, margin + 2, y);
       y += 4;
       doc.setTextColor(80, 80, 80);
-      const lines = doc.splitTextToSize(s.text, contentWidth - 4);
-      doc.text(lines, margin + 4, y);
-      y += lines.length * 3.5 + 2;
+      // Split by literal \n first, then wrap each paragraph
+      const paragraphs = s.text.replace(/\\n/g, '\n').split('\n');
+      paragraphs.forEach(para => {
+        const trimmed = para.trim();
+        if (!trimmed) { y += 2; return; }
+        checkPage(10);
+        const lines = doc.splitTextToSize(trimmed, contentWidth - 4);
+        doc.text(lines, margin + 4, y);
+        y += lines.length * 3.5 + 2;
+      });
     });
 
     doc.setTextColor(150, 150, 150);
@@ -154,12 +161,17 @@ export async function generatePdfReport(data: ReportData) {
     doc.text('Immediate Actions Required:', margin + 2, y);
     y += 5;
     criticals.forEach((r, i) => {
-      checkPage(10);
-      doc.setFontSize(8);
-      doc.setTextColor(60, 60, 60);
-      const lines = doc.splitTextToSize(`${i + 1}. ${r.recommendation}`, contentWidth - 8);
-      doc.text(lines, margin + 4, y);
-      y += lines.length * 3.5 + 2;
+      const text = `${i + 1}. ${r.recommendation}`.replace(/\\n/g, '\n');
+      text.split('\n').forEach(para => {
+        const trimmed = para.trim();
+        if (!trimmed) { y += 2; return; }
+        checkPage(10);
+        doc.setFontSize(8);
+        doc.setTextColor(60, 60, 60);
+        const lines = doc.splitTextToSize(trimmed, contentWidth - 8);
+        doc.text(lines, margin + 4, y);
+        y += lines.length * 3.5 + 2;
+      });
     });
     y += 4;
   }
@@ -171,12 +183,17 @@ export async function generatePdfReport(data: ReportData) {
     doc.text('Prevention Measures:', margin + 2, y);
     y += 5;
     warnings.forEach((r, i) => {
-      checkPage(10);
-      doc.setFontSize(8);
-      doc.setTextColor(60, 60, 60);
-      const lines = doc.splitTextToSize(`${i + 1}. ${r.recommendation}`, contentWidth - 8);
-      doc.text(lines, margin + 4, y);
-      y += lines.length * 3.5 + 2;
+      const text = `${i + 1}. ${r.recommendation}`.replace(/\\n/g, '\n');
+      text.split('\n').forEach(para => {
+        const trimmed = para.trim();
+        if (!trimmed) { y += 2; return; }
+        checkPage(10);
+        doc.setFontSize(8);
+        doc.setTextColor(60, 60, 60);
+        const lines = doc.splitTextToSize(trimmed, contentWidth - 8);
+        doc.text(lines, margin + 4, y);
+        y += lines.length * 3.5 + 2;
+      });
     });
   }
 
