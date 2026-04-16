@@ -12,15 +12,12 @@ import ReportExportButton from '@/components/ReportExportButton';
 import AnalysisHistory from '@/components/AnalysisHistory';
 import AnalysisProgressBar from '@/components/AnalysisProgressBar';
 import { mockLogText, type AnalysisResult } from '@/data/mockLogs';
-import { analyzeLog, analyzeLargeLog, type AnalysisProgress } from '@/lib/logAnalysisApi';
+import { analyzeLog, analyzeLargeLog, analyzeCorrelatedLogs, type AnalysisProgress } from '@/lib/logAnalysisApi';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
 const LARGE_FILE_THRESHOLD = 50 * 1024 * 1024; // 50MB
-
-
-
 
 interface Stats {
   critical: number;
@@ -49,7 +46,7 @@ const Index = () => {
     const { error } = await supabase.from('analysis_history').insert({
       user_id: user.id,
       filename,
-      log_content: content.slice(0, 500000), // Limit stored content for large files
+      log_content: content.slice(0, 500000),
       results: results as any,
       stats: analysisStats as any,
     });
@@ -67,14 +64,12 @@ const Index = () => {
       const isLargeFile = file && file.size >= LARGE_FILE_THRESHOLD;
 
       if (isLargeFile) {
-        // 2-stage analysis for large files
         const result = await analyzeLargeLog(file, (p) => setAnalysisProgress(p));
         setAnalysisResults(result.analyses);
         setStats(result.stats);
         toast({ title: '분석 완료', description: `${result.analyses.length}개의 장애 패턴을 발견했습니다. (2단계 분석)` });
         await saveToHistory(filename, content.slice(0, 500000), result.analyses, result.stats);
       } else {
-        // Direct analysis for small files
         const result = await analyzeLog(content);
         setAnalysisResults(result.analyses);
         setStats(result.stats);
@@ -93,6 +88,41 @@ const Index = () => {
     }
   }, [saveToHistory]);
 
+  const runCorrelatedAnalysis = useCallback(async (files: File[]) => {
+    if (files.length < 2) return;
+    setIsAnalyzing(true);
+    setAnalysisProgress(null);
+    setHasLog(true);
+    setCurrentFilename(`${files[0].name} + ${files[1].name}`);
+    setLogContent(`[통합 분석] ${files[0].name} & ${files[1].name}`);
+    setAnalysisResults([]);
+
+    try {
+      const result = await analyzeCorrelatedLogs(files[0], files[1], (p) => setAnalysisProgress(p));
+      setAnalysisResults(result.analyses);
+      setStats(result.stats);
+      toast({
+        title: '통합 분석 완료',
+        description: `${result.analyses.length}개의 장애 패턴 발견 (2개 파일 상관분석)`,
+      });
+      await saveToHistory(
+        `${files[0].name} + ${files[1].name}`,
+        `[통합 분석]\n파일1: ${files[0].name}\n파일2: ${files[1].name}`,
+        result.analyses,
+        result.stats,
+      );
+    } catch (e) {
+      setAnalysisProgress({ phase: 'error', percent: 0, message: e instanceof Error ? e.message : '알 수 없는 오류' });
+      toast({
+        title: '통합 분석 오류',
+        description: e instanceof Error ? e.message : '알 수 없는 오류',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [saveToHistory]);
+
   const handleLogLoaded = useCallback((content: string, filename: string, file?: File) => {
     setLogContent(content);
     setHasLog(true);
@@ -101,6 +131,11 @@ const Index = () => {
     setAnalysisResults([]);
     runAnalysis(content, filename, file);
   }, [runAnalysis]);
+
+  const handleMultiLogLoaded = useCallback((files: File[]) => {
+    setCurrentFile(null);
+    runCorrelatedAnalysis(files);
+  }, [runCorrelatedAnalysis]);
 
   // Check for chunk from FileSplitter
   useEffect(() => {
@@ -171,7 +206,12 @@ const Index = () => {
                 </Button>
               </div>
             ) : (
-              <LogUploader onLogLoaded={handleLogLoaded} onDemoLoad={handleDemoLoad} isAnalyzing={isAnalyzing} />
+              <LogUploader
+                onLogLoaded={handleLogLoaded}
+                onMultiLogLoaded={handleMultiLogLoaded}
+                onDemoLoad={handleDemoLoad}
+                isAnalyzing={isAnalyzing}
+              />
             )}
             <ReportExportButton
               filename={currentFilename}
