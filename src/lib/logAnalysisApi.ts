@@ -65,7 +65,12 @@ export async function analyzeLog(logContent: string): Promise<AnalysisResponse> 
   });
   if (error) throw new Error(error.message || 'Analysis failed');
   if (data?.error) throw new Error(data.error);
-  return data as AnalysisResponse;
+  const result = data as AnalysisResponse;
+
+  // Store analysis results as embeddings (fire-and-forget)
+  storeAnalysisEmbeddings(result.analyses).catch(console.error);
+
+  return result;
 }
 
 /* ─── Large-file 2-stage analysis ─── */
