@@ -177,7 +177,7 @@ async function callAI(apiKey: string, systemPrompt: string, userContent: string,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "google/gemini-3-flash-preview",
+      model: "google/gemini-2.5-flash",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userContent },
@@ -197,9 +197,7 @@ async function callAI(apiKey: string, systemPrompt: string, userContent: string,
 
   const data = await response.json();
   const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-  if (toolCall?.function?.arguments) {
-    return JSON.parse(toolCall.function.arguments);
-  }
+  if (toolCall?.function?.arguments) return JSON.parse(toolCall.function.arguments);
 
   const content = data.choices?.[0]?.message?.content || "";
   const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -247,8 +245,10 @@ serve(async (req) => {
         });
       }
 
-      // Find similar past cases based on the detailed logs
-      const similarCases = await findSimilarCases(detailedLogs.slice(0, 2000), LOVABLE_API_KEY);
+      // Run similar case lookup in PARALLEL with building the prompt
+      const [similarCases] = await Promise.all([
+        findSimilarCases(detailedLogs.slice(0, 2000), LOVABLE_API_KEY),
+      ]);
 
       const userContent = `다음은 1차 분석에서 의심 구간으로 특정된 상세 로그(전후 100줄)야. 총 원본 라인 수: ${totalLines}\n\n${detailedLogs}${similarCases}`;
 
