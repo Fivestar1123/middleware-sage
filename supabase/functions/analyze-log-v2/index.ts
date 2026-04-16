@@ -146,9 +146,9 @@ function generateEmbedding(text: string): number[] | null {
   return result;
 }
 
-async function findSimilarCases(logText: string, apiKey: string): Promise<string> {
+async function findSimilarCases(logText: string): Promise<string> {
   try {
-    const embedding = await generateEmbedding(logText, apiKey);
+    const embedding = generateEmbedding(logText);
     if (!embedding) return "";
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -157,7 +157,7 @@ async function findSimilarCases(logText: string, apiKey: string): Promise<string
 
     const { data, error } = await supabase.rpc("match_logs", {
       query_embedding: `[${embedding.join(",")}]`,
-      match_threshold: 0.5,
+      match_threshold: 0.3,
       match_count: 3,
     });
 
@@ -167,7 +167,7 @@ async function findSimilarCases(logText: string, apiKey: string): Promise<string
       `[과거 사례 ${i + 1}] (유사도: ${(d.similarity * 100).toFixed(1)}%)\n${d.content}`
     ).join("\n\n");
 
-    return `\n\n--- 유사한 과거 장애 사례 ---\n${cases}\n\n위 과거 사례를 참고하여, 이전 조치 경험을 반영한 분석과 권장 조치를 제공해줘.`;
+    return `\n\n--- 유사한 과거 장애 사례 ---\n${cases}\n\n위 과거 사례를 참고하여 분석해줘.`;
   } catch (e) {
     console.error("Similar case lookup failed:", e);
     return "";
