@@ -12,9 +12,12 @@ interface Message {
 
 interface ChatInterfaceProps {
   logContent: string;
+  onMessagesChange?: (messages: Message[]) => void;
 }
 
-const ChatInterface = ({ logContent }: ChatInterfaceProps) => {
+export type { Message };
+
+const ChatInterface = ({ logContent, onMessagesChange }: ChatInterfaceProps) => {
   const [messages, setMessages] = useState<Message[]>([
     { role: 'assistant', content: '로그 분석이 완료되었습니다. 분석 결과에 대해 궁금한 점이 있으시면 질문해주세요.\n\n예시: "이 에러가 메모리 누수랑 관련 있어?", "세션 끊김 원인이 뭐야?"' },
   ]);
@@ -27,6 +30,10 @@ const ChatInterface = ({ logContent }: ChatInterfaceProps) => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  useEffect(() => {
+    onMessagesChange?.(messages);
+  }, [messages, onMessagesChange]);
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
