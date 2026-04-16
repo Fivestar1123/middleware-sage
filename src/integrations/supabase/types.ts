@@ -44,6 +44,33 @@ export type Database = {
         }
         Relationships: []
       }
+      log_knowledge: {
+        Row: {
+          content: string | null
+          embedding: string | null
+          id: string
+          log_level: string | null
+          log_time: string | null
+          metadata: Json | null
+        }
+        Insert: {
+          content?: string | null
+          embedding?: string | null
+          id?: string
+          log_level?: string | null
+          log_time?: string | null
+          metadata?: Json | null
+        }
+        Update: {
+          content?: string | null
+          embedding?: string | null
+          id?: string
+          log_level?: string | null
+          log_time?: string | null
+          metadata?: Json | null
+        }
+        Relationships: []
+      }
       split_history: {
         Row: {
           chunk_count: number
@@ -82,7 +109,18 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      match_logs: {
+        Args: {
+          match_count: number
+          match_threshold: number
+          query_embedding: string
+        }
+        Returns: {
+          content: string
+          id: string
+          similarity: number
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

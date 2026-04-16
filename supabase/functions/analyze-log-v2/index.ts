@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -26,6 +27,8 @@ const STAGE2_PROMPT = `너는 10년차 시니어 미들웨어 엔지니어야. J
 - Thread pool exceeded → 스레드 풀 포화
 - timeout → 타임아웃
 - Full GC, STW → GC 관련 장애
+
+과거 유사 장애 사례가 제공되면, 해당 사례의 조치 경험을 참고하여 더 정확한 분석과 권장 조치를 제공해.
 
 반드시 JSON만 반환해.`;
 
@@ -106,6 +109,85 @@ const stage2Tools = [
   },
 ];
 
+async function generateEmbedding(text: string, apiKey: string): Promise<number[] | null> {
+  try {
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/embeddings", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "openai/text-embedding-3-small",
+        input: text.slice(0, 8000),
+      }),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      if (data.data?.[0]?.embedding) return data.data[0].embedding;
+    }
+  } catch { /* ignore */ }
+
+  try {
+    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash-lite",
+        messages: [
+          {
+            role: "system",
+            content: "Output ONLY a JSON array of exactly 384 floats between -1 and 1 representing the semantic meaning of the text. Focus on: error type, severity, middleware, root cause. No other text.",
+          },
+          { role: "user", content: text.slice(0, 4000) },
+        ],
+      }),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const content = data.choices?.[0]?.message?.content || "";
+    const match = content.match(/\[[\s\S]*\]/);
+    if (match) {
+      const arr = JSON.parse(match[0]).slice(0, 384).map((n: any) => Number(n) || 0);
+      while (arr.length < 384) arr.push(0);
+      return arr;
+    }
+  } catch { /* ignore */ }
+
+  return null;
+}
+
+async function findSimilarCases(logText: string, apiKey: string): Promise<string> {
+  try {
+    const embedding = await generateEmbedding(logText, apiKey);
+    if (!embedding) return "";
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const { data, error } = await supabase.rpc("match_logs", {
+      query_embedding: `[${embedding.join(",")}]`,
+      match_threshold: 0.5,
+      match_count: 3,
+    });
+
+    if (error || !data || data.length === 0) return "";
+
+    const cases = data.map((d: any, i: number) =>
+      `[과거 사례 ${i + 1}] (유사도: ${(d.similarity * 100).toFixed(1)}%)\n${d.content}`
+    ).join("\n\n");
+
+    return `\n\n--- 유사한 과거 장애 사례 ---\n${cases}\n\n위 과거 사례를 참고하여, 이전 조치 경험을 반영한 분석과 권장 조치를 제공해줘.`;
+  } catch (e) {
+    console.error("Similar case lookup failed:", e);
+    return "";
+  }
+}
+
 async function callAI(apiKey: string, systemPrompt: string, userContent: string, tools: any[], toolName: string) {
   const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
@@ -156,7 +238,6 @@ serve(async (req) => {
     if (!LOVABLE_API_KEY) throw { status: 500, message: "LOVABLE_API_KEY not configured" };
 
     if (stage === 1) {
-      // Stage 1: Receive filtered summary, identify suspect intervals
       const { summary, intervals } = body;
       if (!summary || !intervals) {
         return new Response(JSON.stringify({ error: "summary and intervals required" }), {
@@ -178,7 +259,6 @@ serve(async (req) => {
       });
 
     } else if (stage === 2) {
-      // Stage 2: Receive detailed logs for suspect intervals
       const { detailedLogs, totalLines } = body;
       if (!detailedLogs) {
         return new Response(JSON.stringify({ error: "detailedLogs required" }), {
@@ -186,7 +266,10 @@ serve(async (req) => {
         });
       }
 
-      const userContent = `다음은 1차 분석에서 의심 구간으로 특정된 상세 로그(전후 100줄)야. 총 원본 라인 수: ${totalLines}\n\n${detailedLogs}`;
+      // Find similar past cases based on the detailed logs
+      const similarCases = await findSimilarCases(detailedLogs.slice(0, 2000), LOVABLE_API_KEY);
+
+      const userContent = `다음은 1차 분석에서 의심 구간으로 특정된 상세 로그(전후 100줄)야. 총 원본 라인 수: ${totalLines}\n\n${detailedLogs}${similarCases}`;
 
       const result = await callAI(LOVABLE_API_KEY, STAGE2_PROMPT, userContent, stage2Tools, "log_analysis_result");
       return new Response(JSON.stringify(result), {

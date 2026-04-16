@@ -57,6 +57,19 @@ export interface AnalysisProgress {
   message: string;
 }
 
+/* ─── Store embeddings (fire-and-forget) ─── */
+
+async function storeAnalysisEmbeddings(analyses: AnalysisResult[]) {
+  if (!analyses || analyses.length === 0) return;
+  try {
+    await supabase.functions.invoke('embed-log', {
+      body: { analyses },
+    });
+  } catch (e) {
+    console.error('Failed to store embeddings:', e);
+  }
+}
+
 /* ─── Small-file direct analysis (legacy, <50MB) ─── */
 
 export async function analyzeLog(logContent: string): Promise<AnalysisResponse> {
@@ -65,7 +78,12 @@ export async function analyzeLog(logContent: string): Promise<AnalysisResponse> 
   });
   if (error) throw new Error(error.message || 'Analysis failed');
   if (data?.error) throw new Error(data.error);
-  return data as AnalysisResponse;
+  const result = data as AnalysisResponse;
+
+  // Store analysis results as embeddings (fire-and-forget)
+  storeAnalysisEmbeddings(result.analyses).catch(console.error);
+
+  return result;
 }
 
 /* ─── Large-file 2-stage analysis ─── */
@@ -124,9 +142,8 @@ export async function analyzeLargeLog(
     })
     .slice(0, 5);
 
-  // Build detailed logs: ±100 lines around each suspect interval
   const detailedParts: string[] = [];
-  const lineMap = new Map(filterResult.rawLineIndex);
+  const _lineMap = new Map(filterResult.rawLineIndex);
 
   for (const suspect of topIntervals) {
     const interval = filterResult.intervals[suspect.intervalIndex];
@@ -151,7 +168,12 @@ export async function analyzeLargeLog(
 
   onProgress({ phase: 'done', percent: 100, message: '분석 완료' });
 
-  return stage2Data as AnalysisResponse;
+  const result = stage2Data as AnalysisResponse;
+
+  // Store analysis results as embeddings (fire-and-forget)
+  storeAnalysisEmbeddings(result.analyses).catch(console.error);
+
+  return result;
 }
 
 /* ─── Web Worker wrapper ─── */

@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -38,6 +39,86 @@ const SYSTEM_PROMPT = `너는 10년차 시니어 미들웨어 엔지니어야. J
 
 반드시 JSON만 반환해. 다른 텍스트 없이.`;
 
+async function generateEmbedding(text: string, apiKey: string): Promise<number[] | null> {
+  try {
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/embeddings", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "openai/text-embedding-3-small",
+        input: text.slice(0, 8000),
+      }),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      if (data.data?.[0]?.embedding) return data.data[0].embedding;
+    }
+  } catch { /* ignore */ }
+
+  // Fallback: use chat to generate pseudo-embedding
+  try {
+    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash-lite",
+        messages: [
+          {
+            role: "system",
+            content: "Output ONLY a JSON array of exactly 384 floats between -1 and 1 representing the semantic meaning of the text. Focus on: error type, severity, middleware, root cause. No other text.",
+          },
+          { role: "user", content: text.slice(0, 4000) },
+        ],
+      }),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const content = data.choices?.[0]?.message?.content || "";
+    const match = content.match(/\[[\s\S]*\]/);
+    if (match) {
+      const arr = JSON.parse(match[0]).slice(0, 384).map((n: any) => Number(n) || 0);
+      while (arr.length < 384) arr.push(0);
+      return arr;
+    }
+  } catch { /* ignore */ }
+
+  return null;
+}
+
+async function findSimilarCases(logText: string, apiKey: string): Promise<string> {
+  try {
+    const embedding = await generateEmbedding(logText, apiKey);
+    if (!embedding) return "";
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const { data, error } = await supabase.rpc("match_logs", {
+      query_embedding: `[${embedding.join(",")}]`,
+      match_threshold: 0.5,
+      match_count: 3,
+    });
+
+    if (error || !data || data.length === 0) return "";
+
+    const cases = data.map((d: any, i: number) =>
+      `[과거 사례 ${i + 1}] (유사도: ${(d.similarity * 100).toFixed(1)}%)\n${d.content}`
+    ).join("\n\n");
+
+    return `\n\n--- 유사한 과거 장애 사례 ---\n${cases}\n\n위 과거 사례를 참고하여, 현재 장애에 대해 이전 조치 경험을 반영한 분석과 권장 조치를 제공해줘.`;
+  } catch (e) {
+    console.error("Similar case lookup failed:", e);
+    return "";
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -45,7 +126,7 @@ serve(async (req) => {
 
   try {
     const { logContent } = await req.json();
-    
+
     if (!logContent || typeof logContent !== "string") {
       return new Response(JSON.stringify({ error: "logContent is required" }), {
         status: 400,
@@ -53,13 +134,13 @@ serve(async (req) => {
       });
     }
 
-    // Truncate very large logs to avoid token limits
     const truncated = logContent.length > 15000 ? logContent.slice(0, 15000) + "\n...(truncated)" : logContent;
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
-    }
+    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+
+    // Find similar past cases
+    const similarCases = await findSimilarCases(truncated.slice(0, 2000), LOVABLE_API_KEY);
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -71,7 +152,7 @@ serve(async (req) => {
         model: "google/gemini-3-flash-preview",
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: `다음 미들웨어 로그를 분석해줘:\n\n${truncated}` },
+          { role: "user", content: `다음 미들웨어 로그를 분석해줘:\n\n${truncated}${similarCases}` },
         ],
         tools: [
           {
@@ -123,14 +204,12 @@ serve(async (req) => {
     if (!response.ok) {
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "크레딧이 부족합니다. Settings > Workspace > Usage에서 충전해주세요." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        return new Response(JSON.stringify({ error: "크레딧이 부족합니다." }), {
+          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       const errorText = await response.text();
@@ -140,7 +219,7 @@ serve(async (req) => {
 
     const data = await response.json();
     const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-    
+
     if (toolCall?.function?.arguments) {
       const result = JSON.parse(toolCall.function.arguments);
       return new Response(JSON.stringify(result), {
@@ -148,7 +227,6 @@ serve(async (req) => {
       });
     }
 
-    // Fallback: try to parse content as JSON
     const content = data.choices?.[0]?.message?.content || "";
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
