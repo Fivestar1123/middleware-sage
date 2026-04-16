@@ -7,8 +7,8 @@ import SeverityChart from '@/components/SeverityChart';
 import LogUploader from '@/components/LogUploader';
 import LogViewer from '@/components/LogViewer';
 import AnalysisPanel from '@/components/AnalysisPanel';
-import ChatInterface from '@/components/ChatInterface';
-import AnalysisHistory from '@/components/AnalysisHistory';
+import ChatInterface, { type Message } from '@/components/ChatInterface';
+import ReportExportButton from '@/components/ReportExportButton';
 import AnalysisProgressBar from '@/components/AnalysisProgressBar';
 import { mockLogText, type AnalysisResult } from '@/data/mockLogs';
 import { analyzeLog, analyzeLargeLog, type AnalysisProgress } from '@/lib/logAnalysisApi';
@@ -58,7 +58,7 @@ const Index = () => {
   const [currentFilename, setCurrentFilename] = useState('');
   const [analysisProgress, setAnalysisProgress] = useState<AnalysisProgress | null>(null);
   const [currentFile, setCurrentFile] = useState<File | null>(null);
-  const historyKeyRef = useRef(0);
+  const [chatMessages, setChatMessages] = useState<Message[]>([]);
   const splitterProcessed = useRef(false);
 
   const saveToHistory = useCallback(async (filename: string, content: string, results: AnalysisResult[], analysisStats: Stats) => {
