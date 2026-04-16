@@ -3,7 +3,7 @@ import { Upload, FileText, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface LogUploaderProps {
-  onLogLoaded: (content: string, filename: string) => void;
+  onLogLoaded: (content: string, filename: string, file?: File) => void;
   onDemoLoad: () => void;
   isAnalyzing: boolean;
 }
@@ -15,12 +15,18 @@ const LogUploader = ({ onLogLoaded, onDemoLoad, isAnalyzing }: LogUploaderProps)
 
   const handleFile = useCallback((file: File) => {
     if (file.size > MAX_FILE_SIZE) {
-      alert('파일 크기가 50MB를 초과합니다. 더 작은 파일을 업로드해주세요.');
+      // For large files, only read preview (first 200KB) and pass File object
+      const previewSlice = file.slice(0, 200 * 1024);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        onLogLoaded(e.target?.result as string, file.name, file);
+      };
+      reader.readAsText(previewSlice);
       return;
     }
     const reader = new FileReader();
     reader.onload = (e) => {
-      onLogLoaded(e.target?.result as string, file.name);
+      onLogLoaded(e.target?.result as string, file.name, file);
     };
     reader.readAsText(file);
   }, [onLogLoaded]);
