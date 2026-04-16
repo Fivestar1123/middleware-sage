@@ -57,6 +57,19 @@ export interface AnalysisProgress {
   message: string;
 }
 
+/* ─── Store embeddings (fire-and-forget) ─── */
+
+async function storeAnalysisEmbeddings(analyses: AnalysisResult[]) {
+  if (!analyses || analyses.length === 0) return;
+  try {
+    await supabase.functions.invoke('embed-log', {
+      body: { analyses },
+    });
+  } catch (e) {
+    console.error('Failed to store embeddings:', e);
+  }
+}
+
 /* ─── Small-file direct analysis (legacy, <50MB) ─── */
 
 export async function analyzeLog(logContent: string): Promise<AnalysisResponse> {
