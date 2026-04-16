@@ -11,34 +11,7 @@ const corsHeaders = {
  * Falls back to a hash-based pseudo-embedding if the embeddings endpoint is unavailable.
  */
 async function generateEmbedding(text: string, apiKey: string): Promise<number[]> {
-  // Try the AI gateway embeddings endpoint
-  try {
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/embeddings", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "openai/text-embedding-3-small",
-        input: text.slice(0, 8000),
-      }),
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      if (data.data?.[0]?.embedding) {
-        return data.data[0].embedding;
-      }
-    }
-    console.warn("Embeddings endpoint returned non-ok, falling back to AI-generated embedding");
-  } catch (e) {
-    console.warn("Embeddings endpoint failed, falling back:", e);
-  }
-
-  // Fallback: Use chat completion to generate a compact numeric vector
-  // This is a workaround - not ideal but functional for similarity search
-  const fallbackResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+  const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -49,28 +22,22 @@ async function generateEmbedding(text: string, apiKey: string): Promise<number[]
       messages: [
         {
           role: "system",
-          content: `You are a text embedding generator. Given a log analysis text, output ONLY a JSON array of exactly 1536 floating point numbers between -1 and 1 that semantically represent the text. Numbers should capture: error type (OOM, connection, timeout, GC, thread), severity, middleware type, and root cause patterns. Output ONLY the JSON array, nothing else.`,
+          content: "Output ONLY a JSON array of exactly 1536 floats between -1 and 1 representing the semantic meaning of the text. Focus on: error type, severity, middleware, root cause. No other text.",
         },
         { role: "user", content: text.slice(0, 4000) },
       ],
     }),
   });
 
-  if (!fallbackResp.ok) {
-    throw new Error("Failed to generate embedding via fallback");
-  }
+  if (!resp.ok) throw new Error("Failed to generate embedding via Gemini");
 
-  const fallbackData = await fallbackResp.json();
-  const content = fallbackData.choices?.[0]?.message?.content || "";
+  const data = await resp.json();
+  const content = data.choices?.[0]?.message?.content || "";
   const match = content.match(/\[[\s\S]*\]/);
   if (match) {
-    const arr = JSON.parse(match[0]);
-    if (Array.isArray(arr) && arr.length > 0) {
-      // Normalize to exactly 1536 dimensions
-      const normalized = arr.slice(0, 1536).map((n: any) => Number(n) || 0);
-      while (normalized.length < 1536) normalized.push(0);
-      return normalized;
-    }
+    const arr = JSON.parse(match[0]).slice(0, 1536).map((n: any) => Number(n) || 0);
+    while (arr.length < 1536) arr.push(0);
+    return arr;
   }
 
   throw new Error("Could not generate embedding");
