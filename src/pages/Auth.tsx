@@ -80,8 +80,8 @@ const Auth = () => {
           <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-primary/10 mx-auto">
             <Shield className="w-6 h-6 text-primary" />
           </div>
-          <CardTitle className="text-xl font-bold font-heading">Middleware AI Guard</CardTitle>
-          <CardDescription>미들웨어 장애 분석 및 조치 가이드</CardDescription>
+          <CardTitle className="text-xl font-bold font-heading">LogMind</CardTitle>
+          <CardDescription>Intelligent Log Analysis</CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="login">
