@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { FileDown, Loader2, RotateCcw } from 'lucide-react';
+import { Loader2, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import DashboardHeader from '@/components/DashboardHeader';
 import StatusCards from '@/components/StatusCards';
@@ -19,27 +19,8 @@ import { useAuth } from '@/hooks/useAuth';
 
 const LARGE_FILE_THRESHOLD = 50 * 1024 * 1024; // 50MB
 
-const generateMarkdownReport = (results: AnalysisResult[], stats: { critical: number; warning: number; info: number; totalLines: number }) => {
-  const now = new Date().toLocaleString('ko-KR');
-  let md = `# 🛡️ LogMind - 장애 분석 보고서\n\n`;
-  md += `**생성일시:** ${now}\n\n`;
-  md += `---\n\n## 📊 요약\n\n`;
-  md += `| 구분 | 건수 |\n|------|------|\n`;
-  md += `| 🔴 Critical | ${stats.critical} |\n`;
-  md += `| 🟡 Warning | ${stats.warning} |\n`;
-  md += `| 🔵 Info | ${stats.info} |\n`;
-  md += `| 총 라인 수 | ${stats.totalLines} |\n\n`;
-  md += `---\n\n## 🔍 상세 분석 결과\n\n`;
-  results.forEach((r, i) => {
-    const icon = r.severity === 'critical' ? '🔴' : r.severity === 'warning' ? '🟡' : '🔵';
-    md += `### ${i + 1}. ${icon} [${r.severity.toUpperCase()}] ${r.title}\n\n`;
-    md += `**장애 원인 추정:**\n${r.cause}\n\n`;
-    md += `**권장 조치 가이드:**\n\`\`\`\n${r.recommendation}\n\`\`\`\n\n`;
-    md += `**예상 영향 범위:**\n${r.impact}\n\n`;
-    md += `**관련 라인:** ${r.relatedLines.join(', ')}\n\n---\n\n`;
-  });
-  return md;
-};
+
+
 
 interface Stats {
   critical: number;
