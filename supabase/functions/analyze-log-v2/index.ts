@@ -252,7 +252,7 @@ serve(async (req) => {
 
       // Run similar case lookup in PARALLEL with building the prompt
       const [similarCases] = await Promise.all([
-        findSimilarCases(detailedLogs.slice(0, 2000), LOVABLE_API_KEY),
+        findSimilarCases(detailedLogs.slice(0, 2000)),
       ]);
 
       const userContent = `다음은 1차 분석에서 의심 구간으로 특정된 상세 로그(전후 100줄)야. 총 원본 라인 수: ${totalLines}\n\n${detailedLogs}${similarCases}`;
