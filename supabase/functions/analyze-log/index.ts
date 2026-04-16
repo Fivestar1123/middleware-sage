@@ -204,7 +204,7 @@ serve(async (req) => {
 
     // Run similar case lookup AND main analysis in PARALLEL
     const [similarCases, baseResult] = await Promise.all([
-      findSimilarCases(truncated.slice(0, 2000), LOVABLE_API_KEY),
+      findSimilarCases(truncated.slice(0, 2000)),
       callAnalysis(LOVABLE_API_KEY, `다음 미들웨어 로그를 분석해줘:\n\n${truncated}`),
     ]);
 
