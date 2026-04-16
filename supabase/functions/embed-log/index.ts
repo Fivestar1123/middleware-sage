@@ -49,7 +49,7 @@ async function generateEmbedding(text: string, apiKey: string): Promise<number[]
       messages: [
         {
           role: "system",
-          content: `You are a text embedding generator. Given a log analysis text, output ONLY a JSON array of exactly 384 floating point numbers between -1 and 1 that semantically represent the text. Numbers should capture: error type (OOM, connection, timeout, GC, thread), severity, middleware type, and root cause patterns. Output ONLY the JSON array, nothing else.`,
+          content: `You are a text embedding generator. Given a log analysis text, output ONLY a JSON array of exactly 1536 floating point numbers between -1 and 1 that semantically represent the text. Numbers should capture: error type (OOM, connection, timeout, GC, thread), severity, middleware type, and root cause patterns. Output ONLY the JSON array, nothing else.`,
         },
         { role: "user", content: text.slice(0, 4000) },
       ],
@@ -66,9 +66,9 @@ async function generateEmbedding(text: string, apiKey: string): Promise<number[]
   if (match) {
     const arr = JSON.parse(match[0]);
     if (Array.isArray(arr) && arr.length > 0) {
-      // Normalize to exactly 384 dimensions
-      const normalized = arr.slice(0, 384).map((n: any) => Number(n) || 0);
-      while (normalized.length < 384) normalized.push(0);
+      // Normalize to exactly 1536 dimensions
+      const normalized = arr.slice(0, 1536).map((n: any) => Number(n) || 0);
+      while (normalized.length < 1536) normalized.push(0);
       return normalized;
     }
   }

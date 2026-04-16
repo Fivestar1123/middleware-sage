@@ -140,7 +140,7 @@ async function generateEmbedding(text: string, apiKey: string): Promise<number[]
         messages: [
           {
             role: "system",
-            content: "Output ONLY a JSON array of exactly 384 floats between -1 and 1 representing the semantic meaning of the text. Focus on: error type, severity, middleware, root cause. No other text.",
+            content: "Output ONLY a JSON array of exactly 1536 floats between -1 and 1 representing the semantic meaning of the text. Focus on: error type, severity, middleware, root cause. No other text.",
           },
           { role: "user", content: text.slice(0, 4000) },
         ],
@@ -151,8 +151,8 @@ async function generateEmbedding(text: string, apiKey: string): Promise<number[]
     const content = data.choices?.[0]?.message?.content || "";
     const match = content.match(/\[[\s\S]*\]/);
     if (match) {
-      const arr = JSON.parse(match[0]).slice(0, 384).map((n: any) => Number(n) || 0);
-      while (arr.length < 384) arr.push(0);
+      const arr = JSON.parse(match[0]).slice(0, 1536).map((n: any) => Number(n) || 0);
+      while (arr.length < 1536) arr.push(0);
       return arr;
     }
   } catch { /* ignore */ }
