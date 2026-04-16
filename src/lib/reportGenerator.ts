@@ -57,8 +57,8 @@ export async function generatePdfReport(data: ReportData) {
     startY: y,
     margin: { left: margin, right: margin },
     theme: 'grid',
-    headStyles: { fillColor: [30, 64, 175], fontSize: 9 },
-    bodyStyles: { fontSize: 9 },
+    headStyles: { fillColor: [30, 64, 175], fontSize: 9, font: 'NotoSansKR' },
+    bodyStyles: { fontSize: 9, font: 'NotoSansKR' },
     columnStyles: { 0: { cellWidth: 40, fontStyle: 'bold' } },
     body: [
       ['Report Date', now()],
