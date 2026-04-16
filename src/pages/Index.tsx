@@ -184,13 +184,13 @@ const Index = () => {
     <div className="min-h-screen bg-background flex flex-col">
       <DashboardHeader />
 
-      <main className="flex-1 p-4 space-y-4 max-w-[1600px] mx-auto w-full">
+      <main className="flex-1 p-3 sm:p-4 space-y-3 sm:space-y-4 max-w-[1600px] mx-auto w-full">
         {/* Top: Status + Upload */}
-        <div className="flex items-start gap-4">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-start gap-3 sm:gap-4">
           <div className="flex-1">
             <StatusCards stats={stats} />
           </div>
-          <div className="w-72 shrink-0 space-y-2">
+          <div className="w-full sm:w-72 sm:shrink-0 space-y-2">
             {hasLog ? (
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1.5 text-xs text-success flex-1">
@@ -236,13 +236,17 @@ const Index = () => {
 
         {/* Main Analysis Area */}
         {hasLog && (
-          <div className="grid grid-cols-2 gap-3" style={{ height: '420px' }}>
-            <LogViewer logContent={logContent} highlightedLines={highlightedLines} />
-            <AnalysisPanel
-              results={analysisResults}
-              onHoverLines={setHighlightedLines}
-              isLoading={isAnalyzing}
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3" style={{ minHeight: '300px' }}>
+            <div className="h-[300px] md:h-[420px]">
+              <LogViewer logContent={logContent} highlightedLines={highlightedLines} />
+            </div>
+            <div className="h-[300px] md:h-[420px]">
+              <AnalysisPanel
+                results={analysisResults}
+                onHoverLines={setHighlightedLines}
+                isLoading={isAnalyzing}
+              />
+            </div>
           </div>
         )}
 

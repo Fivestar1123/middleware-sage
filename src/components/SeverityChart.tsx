@@ -19,7 +19,7 @@ const SeverityChart = ({ stats }: SeverityChartProps) => {
   const tooltipStyle = { background: 'hsl(220, 18%, 13%)', border: '1px solid hsl(220, 14%, 20%)', borderRadius: '8px', fontSize: '12px', color: 'hsl(210, 20%, 92%)' };
 
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <div className="bg-card border border-border rounded-lg p-4">
         <h3 className="text-sm font-semibold text-foreground mb-3 font-heading">위험도 분포</h3>
         <ResponsiveContainer width="100%" height={160}>
