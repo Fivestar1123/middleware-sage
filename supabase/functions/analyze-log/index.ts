@@ -85,41 +85,46 @@ const analysisTools = [
   },
 ];
 
-async function generateEmbedding(text: string, apiKey: string): Promise<number[] | null> {
-  try {
-    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash-lite",
-        messages: [
-          {
-            role: "system",
-            content: "Output ONLY a JSON array of exactly 1536 floats between -1 and 1 representing the semantic meaning of the text. Focus on: error type, severity, middleware, root cause. No other text.",
-          },
-          { role: "user", content: text.slice(0, 4000) },
-        ],
-      }),
-    });
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    const content = data.choices?.[0]?.message?.content || "";
-    const match = content.match(/\[[\s\S]*\]/);
-    if (match) {
-      const arr = JSON.parse(match[0]).slice(0, 1536).map((n: any) => Number(n) || 0);
-      while (arr.length < 1536) arr.push(0);
-      return arr;
-    }
-  } catch { /* ignore */ }
-  return null;
+function generateEmbedding(text: string): number[] | null {
+  const DIM = 1536;
+  const vec = new Float64Array(DIM);
+  const lower = text.toLowerCase();
+
+  const keywords: Record<string, number[]> = {
+    "outofmemoryerror": [0,1,2,3], "oom": [0,1,4], "heap": [0,5,6], "gc overhead": [0,7,8],
+    "full gc": [9,10,11], "stw": [9,12], "메모리": [0,1,13], "memory": [0,1,14],
+    "connection reset": [20,21,22], "abnormal closed": [20,23,24], "비정상": [20,25],
+    "connection pool": [30,31,32], "not closed": [30,33], "커넥션 풀": [30,34],
+    "thread pool": [40,41,42], "스레드": [40,43], "timeout": [50,51,52], "타임아웃": [50,53],
+    "jeus": [60,61], "webtob": [62,63], "apache": [64,65], "tomcat": [66,67],
+    "critical": [70,71], "error": [72,73], "warning": [74,75], "fatal": [70,76],
+    "exception": [72,77], "deadlock": [82,83], "세션": [90,91], "session": [90,92],
+    "shutdown": [100,101], "restart": [100,102], "누수": [0,110], "leak": [0,111],
+    "포화": [40,120], "exceeded": [40,121], "refused": [20,130], "denied": [20,131],
+  };
+
+  for (const [kw, dims] of Object.entries(keywords)) {
+    if (lower.includes(kw)) for (const d of dims) vec[d] = 1.0;
+  }
+
+  const words = lower.split(/\s+/).filter(w => w.length > 1);
+  for (const word of words) {
+    let hash = 0;
+    for (let i = 0; i < word.length; i++) hash = ((hash << 5) - hash + word.charCodeAt(i)) | 0;
+    vec[200 + (Math.abs(hash) % (DIM - 200))] += 0.3;
+  }
+
+  let norm = 0;
+  for (let i = 0; i < DIM; i++) norm += vec[i] * vec[i];
+  norm = Math.sqrt(norm) || 1;
+  const result: number[] = new Array(DIM);
+  for (let i = 0; i < DIM; i++) result[i] = Math.round((vec[i] / norm) * 10000) / 10000;
+  return result;
 }
 
-async function findSimilarCases(logText: string, apiKey: string): Promise<string> {
+async function findSimilarCases(logText: string): Promise<string> {
   try {
-    const embedding = await generateEmbedding(logText, apiKey);
+    const embedding = generateEmbedding(logText);
     if (!embedding) return "";
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -128,7 +133,7 @@ async function findSimilarCases(logText: string, apiKey: string): Promise<string
 
     const { data, error } = await supabase.rpc("match_logs", {
       query_embedding: `[${embedding.join(",")}]`,
-      match_threshold: 0.5,
+      match_threshold: 0.3,
       match_count: 3,
     });
 
@@ -138,7 +143,7 @@ async function findSimilarCases(logText: string, apiKey: string): Promise<string
       `[과거 사례 ${i + 1}] (유사도: ${(d.similarity * 100).toFixed(1)}%)\n${d.content}`
     ).join("\n\n");
 
-    return `\n\n--- 유사한 과거 장애 사례 ---\n${cases}\n\n위 과거 사례를 참고하여, 현재 장애에 대해 이전 조치 경험을 반영한 분석과 권장 조치를 제공해줘.`;
+    return `\n\n--- 유사한 과거 장애 사례 ---\n${cases}\n\n위 과거 사례를 참고하여 분석해줘.`;
   } catch (e) {
     console.error("Similar case lookup failed:", e);
     return "";
@@ -199,7 +204,7 @@ serve(async (req) => {
 
     // Run similar case lookup AND main analysis in PARALLEL
     const [similarCases, baseResult] = await Promise.all([
-      findSimilarCases(truncated.slice(0, 2000), LOVABLE_API_KEY),
+      findSimilarCases(truncated.slice(0, 2000)),
       callAnalysis(LOVABLE_API_KEY, `다음 미들웨어 로그를 분석해줘:\n\n${truncated}`),
     ]);
 

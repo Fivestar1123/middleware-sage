@@ -7,57 +7,99 @@ const corsHeaders = {
 };
 
 /**
- * Generates an embedding for the given text using Lovable AI gateway.
- * Falls back to a hash-based pseudo-embedding if the embeddings endpoint is unavailable.
+ * Deterministic keyword-based embedding generator.
+ * Uses predefined middleware/error keyword vocabulary mapped to fixed dimensions.
+ * Instant, reliable, no AI call needed.
  */
-async function generateEmbedding(text: string, apiKey: string): Promise<number[]> {
-  const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "google/gemini-2.5-flash-lite",
-      messages: [
-        {
-          role: "system",
-          content: "Output ONLY a JSON array of exactly 1536 floats between -1 and 1 representing the semantic meaning of the text. Focus on: error type, severity, middleware, root cause. No other text.",
-        },
-        { role: "user", content: text.slice(0, 4000) },
-      ],
-    }),
-  });
+function generateEmbedding(text: string): number[] {
+  const DIM = 1536;
+  const vec = new Float64Array(DIM);
+  const lower = text.toLowerCase();
 
-  if (!resp.ok) throw new Error("Failed to generate embedding via Gemini");
+  // Middleware & error keyword vocabulary - each keyword maps to specific dimensions
+  const keywords: Record<string, number[]> = {
+    "outofmemoryerror": [0, 1, 2, 3],
+    "oom": [0, 1, 4],
+    "heap": [0, 5, 6],
+    "gc overhead": [0, 7, 8],
+    "full gc": [9, 10, 11],
+    "stw": [9, 12],
+    "메모리": [0, 1, 13],
+    "memory": [0, 1, 14],
+    "connection reset": [20, 21, 22],
+    "abnormal closed": [20, 23, 24],
+    "비정상": [20, 25],
+    "connection pool": [30, 31, 32],
+    "not closed": [30, 33],
+    "커넥션 풀": [30, 34],
+    "thread pool": [40, 41, 42],
+    "스레드": [40, 43],
+    "timeout": [50, 51, 52],
+    "타임아웃": [50, 53],
+    "jeus": [60, 61],
+    "webtob": [62, 63],
+    "apache": [64, 65],
+    "tomcat": [66, 67],
+    "critical": [70, 71],
+    "error": [72, 73],
+    "warning": [74, 75],
+    "fatal": [70, 76],
+    "exception": [72, 77],
+    "stack overflow": [80, 81],
+    "deadlock": [82, 83],
+    "세션": [90, 91],
+    "session": [90, 92],
+    "shutdown": [100, 101],
+    "restart": [100, 102],
+    "누수": [0, 110],
+    "leak": [0, 111],
+    "포화": [40, 120],
+    "exceeded": [40, 121],
+    "refused": [20, 130],
+    "denied": [20, 131],
+  };
 
-  const data = await resp.json();
-  const content = data.choices?.[0]?.message?.content || "";
-  const match = content.match(/\[[\s\S]*\]/);
-  if (match) {
-    const arr = JSON.parse(match[0]).slice(0, 1536).map((n: any) => Number(n) || 0);
-    while (arr.length < 1536) arr.push(0);
-    return arr;
+  // Activate keyword dimensions
+  for (const [kw, dims] of Object.entries(keywords)) {
+    if (lower.includes(kw)) {
+      for (const d of dims) {
+        vec[d] = 1.0;
+      }
+    }
   }
 
-  throw new Error("Could not generate embedding");
+  // Hash-based dimensions for general text similarity (dims 200-1535)
+  const words = lower.split(/\s+/).filter(w => w.length > 1);
+  for (const word of words) {
+    let hash = 0;
+    for (let i = 0; i < word.length; i++) {
+      hash = ((hash << 5) - hash + word.charCodeAt(i)) | 0;
+    }
+    const idx = 200 + (Math.abs(hash) % (DIM - 200));
+    vec[idx] += 0.3;
+  }
+
+  // L2 normalize
+  let norm = 0;
+  for (let i = 0; i < DIM; i++) norm += vec[i] * vec[i];
+  norm = Math.sqrt(norm) || 1;
+  const result: number[] = new Array(DIM);
+  for (let i = 0; i < DIM; i++) result[i] = Math.round((vec[i] / norm) * 10000) / 10000;
+
+  return result;
 }
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { analyses, logSnippet } = await req.json();
+    const { analyses } = await req.json();
 
     if (!analyses || !Array.isArray(analyses) || analyses.length === 0) {
       return new Response(JSON.stringify({ error: "analyses array required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -65,40 +107,35 @@ serve(async (req) => {
 
     const stored: string[] = [];
 
-    for (const analysis of analyses) {
-      // Build a rich text representation for embedding
+    // Process all analyses - embedding is instant, no AI call
+    for (const analysis of analyses.slice(0, 10)) {
       const textForEmbedding = [
         `[${analysis.severity}] ${analysis.title}`,
         `원인: ${analysis.cause}`,
         `조치: ${analysis.recommendation}`,
         `영향: ${analysis.impact}`,
-        analysis.timeRange ? `시간대: ${analysis.timeRange}` : "",
       ].filter(Boolean).join("\n");
 
-      try {
-        const embedding = await generateEmbedding(textForEmbedding, LOVABLE_API_KEY);
+      const embedding = generateEmbedding(textForEmbedding);
 
-        const { error } = await supabase.from("log_knowledge").insert({
-          content: textForEmbedding,
-          embedding: `[${embedding.join(",")}]`,
-          log_level: analysis.severity,
-          log_time: new Date().toISOString(),
-          metadata: {
-            title: analysis.title,
-            cause: analysis.cause,
-            recommendation: analysis.recommendation,
-            impact: analysis.impact,
-            relatedLines: analysis.relatedLines,
-          },
-        });
+      const { error } = await supabase.from("log_knowledge").insert({
+        content: textForEmbedding,
+        embedding: `[${embedding.join(",")}]`,
+        log_level: analysis.severity,
+        log_time: new Date().toISOString(),
+        metadata: {
+          title: analysis.title,
+          cause: analysis.cause,
+          recommendation: analysis.recommendation,
+          impact: analysis.impact,
+          relatedLines: analysis.relatedLines,
+        },
+      });
 
-        if (error) {
-          console.error("Insert error:", error);
-        } else {
-          stored.push(analysis.title);
-        }
-      } catch (e) {
-        console.error("Embedding error for analysis:", analysis.title, e);
+      if (error) {
+        console.error("Insert error:", error);
+      } else {
+        stored.push(analysis.title);
       }
     }
 
@@ -108,8 +145,7 @@ serve(async (req) => {
   } catch (e: any) {
     console.error("embed-log error:", e);
     return new Response(JSON.stringify({ error: e.message || "Unknown error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });
