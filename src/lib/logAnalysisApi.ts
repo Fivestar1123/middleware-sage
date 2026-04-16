@@ -143,8 +143,7 @@ export async function analyzeLargeLog(
     .slice(0, 5);
 
   // Build detailed logs: ±100 lines around each suspect interval
-  const detailedParts: string[] = [];
-  const lineMap = new Map(filterResult.rawLineIndex);
+  const _lineMap = new Map(filterResult.rawLineIndex);
 
   for (const suspect of topIntervals) {
     const interval = filterResult.intervals[suspect.intervalIndex];
@@ -169,7 +168,12 @@ export async function analyzeLargeLog(
 
   onProgress({ phase: 'done', percent: 100, message: '분석 완료' });
 
-  return stage2Data as AnalysisResponse;
+  const result = stage2Data as AnalysisResponse;
+
+  // Store analysis results as embeddings (fire-and-forget)
+  storeAnalysisEmbeddings(result.analyses).catch(console.error);
+
+  return result;
 }
 
 /* ─── Web Worker wrapper ─── */
