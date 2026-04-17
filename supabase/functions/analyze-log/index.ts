@@ -6,6 +6,10 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const MAX_REQUEST_BYTES = 256 * 1024;
+const MAX_LOG_CHARS = 8000;
+const TRUNCATION_SUFFIX = "\n...(truncated)";
+
 const SYSTEM_PROMPT = `너는 10년차 시니어 미들웨어 엔지니어야. JEUS, WebtoB, Apache, Tomcat 등 공공기관 미들웨어 로그를 분석하는 전문가야.
 
 사용자가 로그를 제공하면 다음 JSON 형식으로 분석 결과를 반환해:
@@ -84,6 +88,19 @@ const analysisTools = [
     },
   },
 ];
+
+function jsonResponse(payload: unknown, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function truncateLogContent(logContent: string) {
+  return logContent.length > MAX_LOG_CHARS
+    ? `${logContent.slice(0, MAX_LOG_CHARS)}${TRUNCATION_SUFFIX}`
+    : logContent;
+}
 
 function generateEmbedding(text: string): number[] | null {
   const DIM = 1536;
@@ -193,30 +210,33 @@ serve(async (req) => {
   // Auth guard
   const authHeader = req.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer ")) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ error: "Unauthorized" }, 401);
   }
   {
     const sbAuth = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
     const { data: claims, error: claimsErr } = await sbAuth.auth.getClaims(authHeader.replace("Bearer ", ""));
     if (claimsErr || !claims?.claims) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
   }
 
+  const contentLength = Number(req.headers.get("content-length") || "0");
+  if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES) {
+    return jsonResponse({
+      error: "요청 본문이 너무 큽니다. 대용량 파일은 분할 분석을 사용하거나 앞부분만 전송해주세요.",
+    }, 413);
+  }
+
   try {
-    const { logContent } = await req.json();
+    const { logContent, totalLines } = await req.json();
     if (!logContent || typeof logContent !== "string") {
-      return new Response(JSON.stringify({ error: "logContent is required" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "logContent is required" }, 400);
     }
 
-    // Reduce input size aggressively to stay within Edge Function CPU limits (2s).
-    const truncated = logContent.length > 8000 ? logContent.slice(0, 8000) + "\n...(truncated)" : logContent;
+    const normalizedTotalLines = typeof totalLines === "number" && Number.isFinite(totalLines) && totalLines > 0
+      ? Math.floor(totalLines)
+      : logContent.split(/\r?\n/).length;
+    const truncated = truncateLogContent(logContent);
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
@@ -226,15 +246,15 @@ serve(async (req) => {
       `다음 미들웨어 로그를 분석해줘:\n\n${truncated}`,
     );
 
-    return new Response(JSON.stringify(baseResult), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    if (baseResult?.stats && typeof baseResult.stats === "object") {
+      baseResult.stats.totalLines = normalizedTotalLines;
+    }
+
+    return jsonResponse(baseResult);
   } catch (e: any) {
     const status = e.status || 500;
     const message = e.message || "Unknown error";
     console.error("analyze-log error:", e);
-    return new Response(JSON.stringify({ error: message }), {
-      status, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ error: message }, status);
   }
 });

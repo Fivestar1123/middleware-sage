@@ -59,6 +59,32 @@ export interface AnalysisProgress {
   message: string;
 }
 
+const DIRECT_ANALYSIS_MAX_CHARS = 8_000;
+const DIRECT_ANALYSIS_SUFFIX = '\n...(truncated)';
+
+function countLines(text: string): number {
+  if (!text) return 0;
+
+  let count = 1;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text.charCodeAt(i) === 10) count += 1;
+  }
+
+  return count;
+}
+
+function buildDirectAnalysisPayload(logContent: string) {
+  const truncated = logContent.length > DIRECT_ANALYSIS_MAX_CHARS;
+
+  return {
+    logContent: truncated
+      ? `${logContent.slice(0, DIRECT_ANALYSIS_MAX_CHARS)}${DIRECT_ANALYSIS_SUFFIX}`
+      : logContent,
+    totalLines: countLines(logContent),
+    truncated,
+  };
+}
+
 /* ─── Store embeddings (fire-and-forget) ─── */
 
 async function storeAnalysisEmbeddings(analyses: AnalysisResult[]) {
@@ -76,7 +102,7 @@ async function storeAnalysisEmbeddings(analyses: AnalysisResult[]) {
 
 export async function analyzeLog(logContent: string): Promise<AnalysisResponse> {
   const { data, error } = await supabase.functions.invoke('analyze-log', {
-    body: { logContent },
+    body: buildDirectAnalysisPayload(logContent),
   });
   if (error) throw new Error(error.message || 'Analysis failed');
   if (data?.error) throw new Error(data.error);
