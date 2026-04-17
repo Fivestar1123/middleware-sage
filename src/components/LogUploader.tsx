@@ -12,7 +12,7 @@ interface LogUploaderProps {
 }
 
 const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'];
-const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024;
+const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 
 const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }: LogUploaderProps) => {
   const [isDragging, setIsDragging] = useState(false);
