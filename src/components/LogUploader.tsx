@@ -135,6 +135,9 @@ const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }:
       <p className="text-xs text-muted-foreground mt-1">
         .log, .txt 파일 지원 | <Image className="w-3 h-3 inline" /> 이미지 OCR 지원
       </p>
+      <p className="text-xs text-warning mt-0.5">
+        ⚠️ 테스트 기간: 최대 <strong>10MB</strong>까지 업로드 가능 (초과 시 파일 분할 이용)
+      </p>
       <p className="text-xs text-primary/70 mt-0.5">
         <Plus className="w-3 h-3 inline" /> 2개 파일 동시 업로드 시 통합 상관분석
       </p>
