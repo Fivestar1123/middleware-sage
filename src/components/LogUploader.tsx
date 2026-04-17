@@ -12,7 +12,7 @@ interface LogUploaderProps {
 }
 
 const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'];
-const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB (테스트 한도)
 
 const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }: LogUploaderProps) => {
   const [isDragging, setIsDragging] = useState(false);
@@ -84,7 +84,7 @@ const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }:
       if (file.size > MAX_FILE_SIZE) {
         toast({
           title: '파일이 너무 큽니다',
-          description: '최대 20MB까지 업로드할 수 있습니다. 파일 분할 기능을 이용해 주세요.',
+          description: '테스트 기간 동안 최대 10MB까지 업로드할 수 있습니다. 파일 분할 기능을 이용해 주세요.',
           variant: 'destructive',
         });
         return;
@@ -134,6 +134,9 @@ const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }:
       <p className="text-sm text-foreground font-medium">로그 파일을 드래그하거나 클릭하여 업로드</p>
       <p className="text-xs text-muted-foreground mt-1">
         .log, .txt 파일 지원 | <Image className="w-3 h-3 inline" /> 이미지 OCR 지원
+      </p>
+      <p className="text-xs text-warning mt-0.5">
+        ⚠️ 테스트 기간: 최대 <strong>10MB</strong>까지 업로드 가능 (초과 시 파일 분할 이용)
       </p>
       <p className="text-xs text-primary/70 mt-0.5">
         <Plus className="w-3 h-3 inline" /> 2개 파일 동시 업로드 시 통합 상관분석
