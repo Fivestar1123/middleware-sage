@@ -274,10 +274,19 @@ const FileSplitter = () => {
   const handleChunkAnalyze = useCallback(async (index: number) => {
     const chunk = chunks[index];
     if (!chunk) return;
-    const text = await chunk.blob.text();
-    sessionStorage.setItem('splitter_log_content', text);
-    sessionStorage.setItem('splitter_log_filename', chunk.name);
-    navigate('/');
+    try {
+      const text = await chunk.blob.text();
+      const { setPendingSplitterChunk } = await import('@/lib/splitterTransfer');
+      setPendingSplitterChunk(text, chunk.name);
+      navigate('/');
+    } catch (e) {
+      toast({
+        title: '청크 로드 실패',
+        description: e instanceof Error ? e.message : '청크 크기가 너무 큽니다. 더 작게 분할해 주세요.',
+        variant: 'destructive',
+      });
+      return;
+    }
     toast({ title: '분석 페이지로 이동', description: `${chunk.name} 파일을 분석합니다.` });
   }, [chunks, navigate]);
 

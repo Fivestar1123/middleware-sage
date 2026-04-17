@@ -140,14 +140,24 @@ const Index = () => {
   // Check for chunk from FileSplitter
   useEffect(() => {
     if (splitterProcessed.current) return;
-    const content = sessionStorage.getItem('splitter_log_content');
-    const filename = sessionStorage.getItem('splitter_log_filename');
-    if (content && filename) {
-      splitterProcessed.current = true;
-      sessionStorage.removeItem('splitter_log_content');
-      sessionStorage.removeItem('splitter_log_filename');
-      handleLogLoaded(content, filename);
-    }
+    (async () => {
+      const { consumePendingSplitterChunk } = await import('@/lib/splitterTransfer');
+      const data = consumePendingSplitterChunk();
+      if (data) {
+        splitterProcessed.current = true;
+        handleLogLoaded(data.content, data.filename);
+        return;
+      }
+      // Backwards-compat: clear any old sessionStorage entries
+      const content = sessionStorage.getItem('splitter_log_content');
+      const filename = sessionStorage.getItem('splitter_log_filename');
+      if (content && filename) {
+        splitterProcessed.current = true;
+        sessionStorage.removeItem('splitter_log_content');
+        sessionStorage.removeItem('splitter_log_filename');
+        handleLogLoaded(content, filename);
+      }
+    })();
   }, [handleLogLoaded]);
 
   const handleDemoLoad = useCallback(() => {
