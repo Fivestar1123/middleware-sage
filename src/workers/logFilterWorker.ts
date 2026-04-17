@@ -279,6 +279,7 @@ async function processFile(file: File, keywords: string[], contextLines: number)
     intervals,
     summary,
     rawLineIndex: lineIndex,
+    severityStats,
   } as FilterResultSerialized);
 }
 
