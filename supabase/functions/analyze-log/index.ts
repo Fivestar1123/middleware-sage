@@ -215,30 +215,16 @@ serve(async (req) => {
       });
     }
 
-    const truncated = logContent.length > 15000 ? logContent.slice(0, 15000) + "\n...(truncated)" : logContent;
+    // Reduce input size aggressively to stay within Edge Function CPU limits (2s).
+    const truncated = logContent.length > 8000 ? logContent.slice(0, 8000) + "\n...(truncated)" : logContent;
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    // Run similar case lookup AND main analysis in PARALLEL
-    const [similarCases, baseResult] = await Promise.all([
-      findSimilarCases(truncated.slice(0, 2000)),
-      callAnalysis(LOVABLE_API_KEY, `다음 미들웨어 로그를 분석해줘:\n\n${truncated}`),
-    ]);
-
-    // If similar cases found, do a quick refinement pass
-    if (similarCases) {
-      try {
-        const refined = await callAnalysis(
-          LOVABLE_API_KEY,
-          `다음은 초기 분석 결과와 유사 과거 사례야. 과거 사례를 참고해 분석을 보완해줘.\n\n초기 분석:\n${JSON.stringify(baseResult)}\n${similarCases}`
-        );
-        return new Response(JSON.stringify(refined), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      } catch {
-        // Refinement failed, return base result
-      }
-    }
+    // Single AI call — skip embedding/similar-case lookup (CPU-heavy, exceeds limit).
+    const baseResult = await callAnalysis(
+      LOVABLE_API_KEY,
+      `다음 미들웨어 로그를 분석해줘:\n\n${truncated}`,
+    );
 
     return new Response(JSON.stringify(baseResult), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
