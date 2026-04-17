@@ -84,7 +84,7 @@ const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }:
       if (file.size > MAX_FILE_SIZE) {
         toast({
           title: '파일이 너무 큽니다',
-          description: '최대 20MB까지 업로드할 수 있습니다. 파일 분할 기능을 이용해 주세요.',
+          description: '테스트 기간 동안 최대 10MB까지 업로드할 수 있습니다. 파일 분할 기능을 이용해 주세요.',
           variant: 'destructive',
         });
         return;
