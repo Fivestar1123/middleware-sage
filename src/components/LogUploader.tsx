@@ -82,12 +82,11 @@ const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }:
     if (fileArray.length === 1) {
       const file = fileArray[0];
       if (file.size > MAX_FILE_SIZE) {
-        const previewSlice = file.slice(0, 200 * 1024);
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          onLogLoaded(e.target?.result as string, file.name, file);
-        };
-        reader.readAsText(previewSlice);
+        toast({
+          title: '파일이 너무 큽니다',
+          description: '최대 20MB까지 업로드할 수 있습니다. 파일 분할 기능을 이용해 주세요.',
+          variant: 'destructive',
+        });
         return;
       }
       const reader = new FileReader();
