@@ -17,12 +17,20 @@ export interface TimeInterval {
   lines: FilteredLine[];
 }
 
+export interface SeverityStats {
+  critical: number;
+  warning: number;
+  info: number;
+  totalLines: number;
+}
+
 export interface FilterResult {
   totalLines: number;
   filteredLines: FilteredLine[];
   intervals: TimeInterval[];
   summary: string;
   rawLineIndex: [number, string][];
+  severityStats: SeverityStats;
 }
 
 interface Stage1Result {
@@ -189,6 +197,8 @@ export async function analyzeLargeLog(
   onProgress({ phase: 'done', percent: 100, message: '분석 완료' });
 
   const result = stage2Data as AnalysisResponse;
+  // Regex 1차 분류 결과로 stats 덮어쓰기 (LLM의 추정 카운트보다 정확)
+  result.stats = filterResult.severityStats;
   storeAnalysisEmbeddings(result.analyses).catch(console.error);
   return result;
 }
@@ -250,6 +260,13 @@ export async function analyzeCorrelatedLogs(
   onProgress({ phase: 'done', percent: 100, message: '통합 분석 완료' });
 
   const result = data as AnalysisResponse;
+  // Regex 1차 분류 결과 합산으로 stats 덮어쓰기
+  result.stats = {
+    critical: filterA.severityStats.critical + filterB.severityStats.critical,
+    warning: filterA.severityStats.warning + filterB.severityStats.warning,
+    info: filterA.severityStats.info + filterB.severityStats.info,
+    totalLines: filterA.totalLines + filterB.totalLines,
+  };
   storeAnalysisEmbeddings(result.analyses).catch(console.error);
   return result;
 }
@@ -312,6 +329,9 @@ function runWorkerFilter(
           intervals: msg.intervals,
           summary: msg.summary,
           rawLineIndex: msg.rawLineIndex,
+          severityStats: msg.severityStats ?? {
+            critical: 0, warning: 0, info: 0, totalLines: msg.totalLines,
+          },
         });
         worker.terminate();
       } else if (msg.type === 'error') {

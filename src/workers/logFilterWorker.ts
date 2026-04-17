@@ -29,13 +29,21 @@ interface TimeInterval {
   lines: FilteredLine[];
 }
 
+interface SeverityStats {
+  critical: number;
+  warning: number;
+  info: number;
+  totalLines: number;
+}
+
 interface FilterResult {
   type: 'result';
   totalLines: number;
   filteredLines: FilteredLine[];
   intervals: TimeInterval[];
   summary: string;
-  rawLineIndex: Map<number, string>; // serialized as array of [lineNum, text]
+  rawLineIndex: Map<number, string>;
+  severityStats: SeverityStats;
 }
 
 interface FilterResultSerialized {
@@ -45,6 +53,20 @@ interface FilterResultSerialized {
   intervals: TimeInterval[];
   summary: string;
   rawLineIndex: [number, string][];
+  severityStats: SeverityStats;
+}
+
+// Regex 1차 분류 룰 (analyze-log Edge Function과 동일)
+const SEVERITY_CRITICAL_RE = /\b(FATAL|CRITICAL|PANIC|EMERG|ERROR|EXCEPTION|FAIL(ED|URE)?|SEVERE)\b/i;
+const SEVERITY_WARNING_RE = /\b(WARN(ING)?|DEPRECATED|RETRY)\b/i;
+const SEVERITY_INFO_RE = /\b(INFO|DEBUG|TRACE|NOTICE)\b/i;
+
+function classifyLine(line: string): 'critical' | 'warning' | 'info' | null {
+  if (!line.trim()) return null;
+  if (SEVERITY_CRITICAL_RE.test(line)) return 'critical';
+  if (SEVERITY_WARNING_RE.test(line)) return 'warning';
+  if (SEVERITY_INFO_RE.test(line)) return 'info';
+  return null;
 }
 
 const TIMESTAMP_RE = /\[?([\d]{4}[-/][\d]{2}[-/][\d]{2}[\sT][\d]{2}:[\d]{2}:[\d]{2}[.\d]*)\]?/;
@@ -158,6 +180,9 @@ async function processFile(file: File, keywords: string[], contextLines: number)
   let bytesRead = 0;
   const totalBytes = file.size;
 
+  const severityStats: SeverityStats = { critical: 0, warning: 0, info: 0, totalLines: 0 };
+  let unknownCount = 0;
+
   // Read file in chunks
   let offset = 0;
   while (offset < totalBytes) {
@@ -167,7 +192,6 @@ async function processFile(file: File, keywords: string[], contextLines: number)
     const combined = leftover + text;
 
     const lines = combined.split('\n');
-    // Last element may be incomplete if not at EOF
     if (end < totalBytes) {
       leftover = lines.pop() || '';
     } else {
@@ -178,6 +202,13 @@ async function processFile(file: File, keywords: string[], contextLines: number)
       if (!line.trim()) continue;
       const lineNum = allLines.length + 1;
       allLines.push(line);
+
+      // Regex 1차 분류
+      const sev = classifyLine(line);
+      if (sev === 'critical') severityStats.critical++;
+      else if (sev === 'warning') severityStats.warning++;
+      else if (sev === 'info') severityStats.info++;
+      else unknownCount++;
 
       const mergedKeywords = [...keywords, ...ERROR_KEYWORDS];
       if (isErrorLine(line, mergedKeywords) || isWarnLine(line) || isMetricLine(line)) {
@@ -199,10 +230,19 @@ async function processFile(file: File, keywords: string[], contextLines: number)
   if (leftover.trim()) {
     const lineNum = allLines.length + 1;
     allLines.push(leftover);
+    const sev = classifyLine(leftover);
+    if (sev === 'critical') severityStats.critical++;
+    else if (sev === 'warning') severityStats.warning++;
+    else if (sev === 'info') severityStats.info++;
+    else unknownCount++;
     if (isErrorLine(leftover, [...keywords, ...ERROR_KEYWORDS]) || isWarnLine(leftover) || isMetricLine(leftover)) {
       matchedLines.push({ lineNumber: lineNum, text: leftover, isMatch: true });
     }
   }
+
+  // unknown 라인은 보수적으로 info에 합산 (LLM 폴백 비용 회피, 대용량은 양이 너무 큼)
+  severityStats.info += unknownCount;
+  severityStats.totalLines = allLines.length;
 
   self.postMessage({
     type: 'progress',
@@ -239,6 +279,7 @@ async function processFile(file: File, keywords: string[], contextLines: number)
     intervals,
     summary,
     rawLineIndex: lineIndex,
+    severityStats,
   } as FilterResultSerialized);
 }
 
