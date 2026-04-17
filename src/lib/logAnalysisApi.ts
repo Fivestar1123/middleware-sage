@@ -329,6 +329,9 @@ function runWorkerFilter(
           intervals: msg.intervals,
           summary: msg.summary,
           rawLineIndex: msg.rawLineIndex,
+          severityStats: msg.severityStats ?? {
+            critical: 0, warning: 0, info: 0, totalLines: msg.totalLines,
+          },
         });
         worker.terminate();
       } else if (msg.type === 'error') {
