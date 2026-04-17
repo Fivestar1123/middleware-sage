@@ -17,7 +17,7 @@ import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
-const LARGE_FILE_THRESHOLD = 50 * 1024 * 1024; // 50MB
+const LARGE_FILE_THRESHOLD = 20 * 1024 * 1024; // 20MB
 
 interface Stats {
   critical: number;

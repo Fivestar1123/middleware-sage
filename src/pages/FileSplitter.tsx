@@ -378,7 +378,7 @@ const FileSplitter = () => {
                   value={[chunkSizeMB]}
                   onValueChange={([v]) => setChunkSizeMB(v)}
                   min={1}
-                  max={50}
+                  max={20}
                   step={1}
                   className="w-full"
                 />
