@@ -260,6 +260,13 @@ export async function analyzeCorrelatedLogs(
   onProgress({ phase: 'done', percent: 100, message: '통합 분석 완료' });
 
   const result = data as AnalysisResponse;
+  // Regex 1차 분류 결과 합산으로 stats 덮어쓰기
+  result.stats = {
+    critical: filterA.severityStats.critical + filterB.severityStats.critical,
+    warning: filterA.severityStats.warning + filterB.severityStats.warning,
+    info: filterA.severityStats.info + filterB.severityStats.info,
+    totalLines: filterA.totalLines + filterB.totalLines,
+  };
   storeAnalysisEmbeddings(result.analyses).catch(console.error);
   return result;
 }
