@@ -29,13 +29,21 @@ interface TimeInterval {
   lines: FilteredLine[];
 }
 
+interface SeverityStats {
+  critical: number;
+  warning: number;
+  info: number;
+  totalLines: number;
+}
+
 interface FilterResult {
   type: 'result';
   totalLines: number;
   filteredLines: FilteredLine[];
   intervals: TimeInterval[];
   summary: string;
-  rawLineIndex: Map<number, string>; // serialized as array of [lineNum, text]
+  rawLineIndex: Map<number, string>;
+  severityStats: SeverityStats;
 }
 
 interface FilterResultSerialized {
@@ -45,6 +53,20 @@ interface FilterResultSerialized {
   intervals: TimeInterval[];
   summary: string;
   rawLineIndex: [number, string][];
+  severityStats: SeverityStats;
+}
+
+// Regex 1차 분류 룰 (analyze-log Edge Function과 동일)
+const SEVERITY_CRITICAL_RE = /\b(FATAL|CRITICAL|PANIC|EMERG|ERROR|EXCEPTION|FAIL(ED|URE)?|SEVERE)\b/i;
+const SEVERITY_WARNING_RE = /\b(WARN(ING)?|DEPRECATED|RETRY)\b/i;
+const SEVERITY_INFO_RE = /\b(INFO|DEBUG|TRACE|NOTICE)\b/i;
+
+function classifyLine(line: string): 'critical' | 'warning' | 'info' | null {
+  if (!line.trim()) return null;
+  if (SEVERITY_CRITICAL_RE.test(line)) return 'critical';
+  if (SEVERITY_WARNING_RE.test(line)) return 'warning';
+  if (SEVERITY_INFO_RE.test(line)) return 'info';
+  return null;
 }
 
 const TIMESTAMP_RE = /\[?([\d]{4}[-/][\d]{2}[-/][\d]{2}[\sT][\d]{2}:[\d]{2}:[\d]{2}[.\d]*)\]?/;
