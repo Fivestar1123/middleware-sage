@@ -102,6 +102,53 @@ function truncateLogContent(logContent: string) {
     : logContent;
 }
 
+async function readJsonBody(req: Request) {
+  const contentLength = Number(req.headers.get("content-length") || "0");
+  if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES) {
+    throw {
+      status: 413,
+      message: "요청 본문이 너무 큽니다. 대용량 파일은 분할 분석을 사용하거나 앞부분만 전송해주세요.",
+    };
+  }
+
+  if (!req.body) return {};
+
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+
+    totalBytes += value.byteLength;
+    if (totalBytes > MAX_REQUEST_BYTES) {
+      throw {
+        status: 413,
+        message: "요청 본문이 너무 큽니다. 대용량 파일은 분할 분석을 사용하거나 앞부분만 전송해주세요.",
+      };
+    }
+
+    chunks.push(value);
+  }
+
+  if (totalBytes === 0) return {};
+
+  const merged = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  try {
+    return JSON.parse(new TextDecoder().decode(merged));
+  } catch {
+    throw { status: 400, message: "Invalid JSON body" };
+  }
+}
+
 function generateEmbedding(text: string): number[] | null {
   const DIM = 1536;
   const vec = new Float64Array(DIM);
@@ -220,15 +267,8 @@ serve(async (req) => {
     }
   }
 
-  const contentLength = Number(req.headers.get("content-length") || "0");
-  if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES) {
-    return jsonResponse({
-      error: "요청 본문이 너무 큽니다. 대용량 파일은 분할 분석을 사용하거나 앞부분만 전송해주세요.",
-    }, 413);
-  }
-
   try {
-    const { logContent, totalLines } = await req.json();
+    const { logContent, totalLines } = await readJsonBody(req);
     if (!logContent || typeof logContent !== "string") {
       return jsonResponse({ error: "logContent is required" }, 400);
     }
