@@ -17,12 +17,20 @@ export interface TimeInterval {
   lines: FilteredLine[];
 }
 
+export interface SeverityStats {
+  critical: number;
+  warning: number;
+  info: number;
+  totalLines: number;
+}
+
 export interface FilterResult {
   totalLines: number;
   filteredLines: FilteredLine[];
   intervals: TimeInterval[];
   summary: string;
   rawLineIndex: [number, string][];
+  severityStats: SeverityStats;
 }
 
 interface Stage1Result {
