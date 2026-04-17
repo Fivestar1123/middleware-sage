@@ -197,6 +197,8 @@ export async function analyzeLargeLog(
   onProgress({ phase: 'done', percent: 100, message: '분석 완료' });
 
   const result = stage2Data as AnalysisResponse;
+  // Regex 1차 분류 결과로 stats 덮어쓰기 (LLM의 추정 카운트보다 정확)
+  result.stats = filterResult.severityStats;
   storeAnalysisEmbeddings(result.analyses).catch(console.error);
   return result;
 }
