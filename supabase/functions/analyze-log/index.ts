@@ -363,9 +363,16 @@ serve(async (req) => {
       `다음 미들웨어 로그를 분석해줘:\n\n${truncated}`,
     );
 
-    if (baseResult?.stats && typeof baseResult.stats === "object") {
-      baseResult.stats.totalLines = normalizedTotalLines;
-    }
+    // Regex 1차 분류 + LLM 폴백으로 stats 정확도 향상
+    const regexStats = classifyByRegex(logContent);
+    const llmStats = await classifyUnknownByLLM(LOVABLE_API_KEY, regexStats.unknownLines);
+
+    baseResult.stats = {
+      critical: regexStats.critical + llmStats.critical,
+      warning: regexStats.warning + llmStats.warning,
+      info: regexStats.info + llmStats.info,
+      totalLines: normalizedTotalLines,
+    };
 
     return jsonResponse(baseResult);
   } catch (e: any) {
