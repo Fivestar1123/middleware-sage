@@ -89,6 +89,83 @@ const analysisTools = [
   },
 ];
 
+// Regex-based severity classifier (1차 분류)
+const SEVERITY_PATTERNS = {
+  critical: /\b(FATAL|CRITICAL|PANIC|EMERG|ERROR|EXCEPTION|FAIL(ED|URE)?|SEVERE)\b/i,
+  warning: /\b(WARN(ING)?|DEPRECATED|RETRY)\b/i,
+  info: /\b(INFO|DEBUG|TRACE|NOTICE)\b/i,
+};
+
+interface ClassifyResult {
+  critical: number;
+  warning: number;
+  info: number;
+  unknown: number;
+  totalLines: number;
+  unknownLines: { lineNo: number; text: string }[];
+}
+
+function classifyByRegex(logContent: string): ClassifyResult {
+  const lines = logContent.split(/\r?\n/);
+  const result: ClassifyResult = {
+    critical: 0, warning: 0, info: 0, unknown: 0,
+    totalLines: lines.length, unknownLines: [],
+  };
+  lines.forEach((line, idx) => {
+    if (!line.trim()) return;
+    if (SEVERITY_PATTERNS.critical.test(line)) result.critical++;
+    else if (SEVERITY_PATTERNS.warning.test(line)) result.warning++;
+    else if (SEVERITY_PATTERNS.info.test(line)) result.info++;
+    else {
+      result.unknown++;
+      if (result.unknownLines.length < 50) {
+        result.unknownLines.push({ lineNo: idx + 1, text: line.slice(0, 200) });
+      }
+    }
+  });
+  return result;
+}
+
+async function classifyUnknownByLLM(
+  apiKey: string,
+  unknownLines: { lineNo: number; text: string }[],
+): Promise<{ critical: number; warning: number; info: number }> {
+  if (unknownLines.length === 0) return { critical: 0, warning: 0, info: 0 };
+
+  const sample = unknownLines.slice(0, 30).map(l => `${l.lineNo}: ${l.text}`).join("\n");
+  try {
+    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash-lite",
+        messages: [
+          { role: "system", content: "다음 로그 라인들을 critical/warning/info 중 하나로 분류해서 카운트만 JSON으로 반환해. 예: {\"critical\":2,\"warning\":5,\"info\":10}" },
+          { role: "user", content: sample },
+        ],
+      }),
+    });
+    if (!resp.ok) return { critical: 0, warning: 0, info: 0 };
+    const data = await resp.json();
+    const content = data.choices?.[0]?.message?.content || "";
+    const m = content.match(/\{[\s\S]*?\}/);
+    if (!m) return { critical: 0, warning: 0, info: 0 };
+    const parsed = JSON.parse(m[0]);
+    // 샘플 비율을 전체 unknown에 적용
+    const totalSample = (parsed.critical || 0) + (parsed.warning || 0) + (parsed.info || 0);
+    if (totalSample === 0) return { critical: 0, warning: 0, info: unknownLines.length };
+    const ratio = unknownLines.length / totalSample;
+    return {
+      critical: Math.round((parsed.critical || 0) * ratio),
+      warning: Math.round((parsed.warning || 0) * ratio),
+      info: Math.round((parsed.info || 0) * ratio),
+    };
+  } catch (e) {
+    console.error("LLM fallback classification failed:", e);
+    return { critical: 0, warning: 0, info: unknownLines.length };
+  }
+}
+
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
@@ -286,9 +363,16 @@ serve(async (req) => {
       `다음 미들웨어 로그를 분석해줘:\n\n${truncated}`,
     );
 
-    if (baseResult?.stats && typeof baseResult.stats === "object") {
-      baseResult.stats.totalLines = normalizedTotalLines;
-    }
+    // Regex 1차 분류 + LLM 폴백으로 stats 정확도 향상
+    const regexStats = classifyByRegex(logContent);
+    const llmStats = await classifyUnknownByLLM(LOVABLE_API_KEY, regexStats.unknownLines);
+
+    baseResult.stats = {
+      critical: regexStats.critical + llmStats.critical,
+      warning: regexStats.warning + llmStats.warning,
+      info: regexStats.info + llmStats.info,
+      totalLines: normalizedTotalLines,
+    };
 
     return jsonResponse(baseResult);
   } catch (e: any) {
