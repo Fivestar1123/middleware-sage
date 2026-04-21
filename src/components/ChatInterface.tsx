@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { streamChatLog } from '@/lib/logAnalysisApi';
 import { toast } from '@/hooks/use-toast';
+import type { AnalysisResult } from '@/data/mockLogs';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -12,12 +13,25 @@ interface Message {
 
 interface ChatInterfaceProps {
   logContent: string;
+  analysisResults?: AnalysisResult[];
   onMessagesChange?: (messages: Message[]) => void;
 }
 
 export type { Message };
 
-const ChatInterface = ({ logContent, onMessagesChange }: ChatInterfaceProps) => {
+const formatAnalysisContext = (results: AnalysisResult[]): string => {
+  if (!results || results.length === 0) return '';
+  const lines = results.map((r, i) =>
+    `[${i + 1}] (${r.severity.toUpperCase()}) ${r.title}\n` +
+    `  - 원인: ${r.cause.replace(/\\n/g, ' ').slice(0, 200)}\n` +
+    `  - 권장조치: ${r.recommendation.replace(/\\n/g, ' ').slice(0, 200)}\n` +
+    `  - 영향: ${r.impact.replace(/\\n/g, ' ').slice(0, 150)}\n` +
+    `  - 관련 라인: ${r.relatedLines.join(', ')}`
+  );
+  return `===== 사전 AI 분석 결과 (${results.length}건) =====\n${lines.join('\n\n')}\n===== 분석 결과 끝 =====\n\n`;
+};
+
+const ChatInterface = ({ logContent, analysisResults, onMessagesChange }: ChatInterfaceProps) => {
   const [messages, setMessages] = useState<Message[]>([
     { role: 'assistant', content: '로그 분석이 완료되었습니다. 분석 결과에 대해 궁금한 점이 있으시면 질문해주세요.\n\n예시: "이 에러가 메모리 누수랑 관련 있어?", "세션 끊김 원인이 뭐야?"' },
   ]);
@@ -44,11 +58,13 @@ const ChatInterface = ({ logContent, onMessagesChange }: ChatInterfaceProps) => 
     setIsLoading(true);
 
     let assistantSoFar = '';
+    const analysisContext = formatAnalysisContext(analysisResults || []);
+    const fullContext = analysisContext + (logContent || '');
 
     try {
       await streamChatLog({
         messages: [...messages.filter(m => m.role !== 'assistant' || messages.indexOf(m) !== 0), userMessage],
-        logContext: logContent,
+        logContext: fullContext,
         onDelta: (chunk) => {
           assistantSoFar += chunk;
           setMessages(prev => {
