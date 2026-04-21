@@ -262,7 +262,7 @@ const Index = () => {
 
         {/* Chat */}
         {hasLog && !isAnalyzing && analysisResults.length > 0 && (
-          <ChatInterface logContent={logContent} onMessagesChange={setChatMessages} />
+          <ChatInterface logContent={logContent} analysisResults={analysisResults} onMessagesChange={setChatMessages} />
         )}
       </main>
     </div>
