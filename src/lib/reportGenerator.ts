@@ -61,16 +61,46 @@ async function summarizeChatHistory(
    ════════════════════════════════════════════ */
 
 export async function generatePdfReport(data: ReportData) {
+  // Pre-compute chat summaries (async) before drawing PDF
+  const chatSummaries = await summarizeChatHistory(data.chatMessages.filter((_, i) => i > 0));
+
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 15;
+  const bottomMargin = 20; // reserve for footer
   const contentWidth = pageWidth - margin * 2;
   let y = margin;
 
   const koreanFontName = await registerKoreanPdfFont(doc);
 
   const addPage = () => { doc.addPage(); y = margin; };
-  const checkPage = (needed: number) => { if (y + needed > 280) addPage(); };
+  const checkPage = (needed: number) => {
+    if (y + needed > pageHeight - bottomMargin) addPage();
+  };
+
+  /** Draw wrapped text line-by-line with per-line page-break checks. */
+  const drawWrappedText = (
+    text: string,
+    x: number,
+    opts: { fontSize: number; color: [number, number, number]; maxWidth: number; lineHeight?: number }
+  ) => {
+    const lh = opts.lineHeight ?? opts.fontSize * 0.45;
+    doc.setFontSize(opts.fontSize);
+    doc.setTextColor(...opts.color);
+    const paragraphs = (text || '').replace(/\\n/g, '\n').split('\n');
+    paragraphs.forEach((para) => {
+      const trimmed = para.trim();
+      if (!trimmed) { y += lh * 0.6; return; }
+      const lines = doc.splitTextToSize(trimmed, opts.maxWidth);
+      lines.forEach((ln: string) => {
+        checkPage(lh + 1);
+        doc.text(ln, x, y);
+        y += lh;
+      });
+      y += 1;
+    });
+  };
 
   // ── Title ──
   doc.setFontSize(20);
@@ -123,8 +153,7 @@ export async function generatePdfReport(data: ReportData) {
   doc.text('2. AI Analysis Results', margin, y);
   y += 8;
 
-  data.analysisResults.forEach((r, i) => {
-    checkPage(50);
+  data.analysisResults.forEach((r) => {
     const sevColor: Record<string, [number, number, number]> = {
       critical: [220, 38, 38],
       warning: [234, 179, 8],
@@ -132,13 +161,11 @@ export async function generatePdfReport(data: ReportData) {
     };
     const color = sevColor[r.severity] || [100, 100, 100];
 
+    checkPage(14);
     doc.setFontSize(10);
     doc.setTextColor(...color);
     doc.text(`[${r.severity.toUpperCase()}] ${r.title}`, margin, y);
     y += 6;
-
-    doc.setFontSize(8);
-    doc.setTextColor(60, 60, 60);
 
     const sections = [
       { label: 'Root Cause:', text: r.cause },
@@ -146,55 +173,67 @@ export async function generatePdfReport(data: ReportData) {
       { label: 'Impact:', text: r.impact },
     ];
 
-    sections.forEach(s => {
-      checkPage(20);
+    sections.forEach((s) => {
+      checkPage(10);
+      doc.setFontSize(8);
       doc.setTextColor(30, 30, 30);
       doc.text(s.label, margin + 2, y);
       y += 4;
-      doc.setTextColor(80, 80, 80);
-      // Split by literal \n first, then wrap each paragraph
-      const paragraphs = s.text.replace(/\\n/g, '\n').split('\n');
-      paragraphs.forEach(para => {
-        const trimmed = para.trim();
-        if (!trimmed) { y += 2; return; }
-        checkPage(10);
-        const lines = doc.splitTextToSize(trimmed, contentWidth - 4);
-        doc.text(lines, margin + 4, y);
-        y += lines.length * 3.5 + 2;
+      drawWrappedText(s.text, margin + 4, {
+        fontSize: 8,
+        color: [80, 80, 80],
+        maxWidth: contentWidth - 4,
       });
+      y += 1;
     });
 
+    checkPage(8);
+    doc.setFontSize(8);
     doc.setTextColor(150, 150, 150);
     doc.text(`Related Lines: ${r.relatedLines.join(', ')}`, margin + 2, y);
     y += 8;
   });
 
-  // ── Section 3: Response History ──
-  const chatHistory = data.chatMessages.filter((_, i) => i > 0); // Skip system greeting
-  if (chatHistory.length > 0) {
+  // ── Section 3: Response History (summarized) ──
+  if (chatSummaries.length > 0) {
     checkPage(20);
     doc.setFontSize(13);
     doc.setTextColor(30, 30, 30);
-    doc.text('3. Response History (AI Chat)', margin, y);
+    doc.text('3. Response History (AI Chat - Summary)', margin, y);
     y += 8;
 
-    chatHistory.forEach(msg => {
-      checkPage(15);
-      const prefix = msg.role === 'user' ? '[User]' : '[AI]';
-      doc.setFontSize(8);
-      doc.setTextColor(msg.role === 'user' ? 30 : 59, msg.role === 'user' ? 64 : 130, msg.role === 'user' ? 175 : 246);
-      doc.text(prefix, margin + 2, y);
-      doc.setTextColor(60, 60, 60);
-      const lines = doc.splitTextToSize(msg.content, contentWidth - 20);
-      doc.text(lines, margin + 18, y);
-      y += Math.max(lines.length * 3.5, 5) + 3;
+    chatSummaries.forEach((s, idx) => {
+      checkPage(14);
+      doc.setFontSize(10);
+      doc.setTextColor(30, 64, 175);
+      doc.text(`Q${idx + 1}. ${s.question}`, margin, y);
+      y += 6;
+
+      const fields: { label: string; text: string }[] = [
+        { label: 'Cause:', text: s.cause },
+        { label: 'Action:', text: s.action },
+        { label: 'Impact:', text: s.impact },
+      ];
+      fields.forEach((f) => {
+        checkPage(10);
+        doc.setFontSize(8);
+        doc.setTextColor(30, 30, 30);
+        doc.text(f.label, margin + 2, y);
+        y += 4;
+        drawWrappedText(f.text, margin + 4, {
+          fontSize: 8,
+          color: [80, 80, 80],
+          maxWidth: contentWidth - 4,
+        });
+        y += 1;
+      });
+      y += 4;
     });
-    y += 4;
   }
 
   // ── Section 4: Action Guide & Prevention ──
   checkPage(20);
-  const sectionNum = chatHistory.length > 0 ? '4' : '3';
+  const sectionNum = chatSummaries.length > 0 ? '4' : '3';
   doc.setFontSize(13);
   doc.setTextColor(30, 30, 30);
   doc.text(`${sectionNum}. Action Guide & Prevention`, margin, y);
@@ -204,44 +243,35 @@ export async function generatePdfReport(data: ReportData) {
   const warnings = data.analysisResults.filter(r => r.severity === 'warning');
 
   if (criticals.length > 0) {
+    checkPage(10);
     doc.setFontSize(9);
     doc.setTextColor(220, 38, 38);
     doc.text('Immediate Actions Required:', margin + 2, y);
     y += 5;
     criticals.forEach((r, i) => {
-      const text = `${i + 1}. ${r.recommendation}`.replace(/\\n/g, '\n');
-      text.split('\n').forEach(para => {
-        const trimmed = para.trim();
-        if (!trimmed) { y += 2; return; }
-        checkPage(10);
-        doc.setFontSize(8);
-        doc.setTextColor(60, 60, 60);
-        const lines = doc.splitTextToSize(trimmed, contentWidth - 8);
-        doc.text(lines, margin + 4, y);
-        y += lines.length * 3.5 + 2;
+      drawWrappedText(`${i + 1}. ${r.recommendation}`, margin + 4, {
+        fontSize: 8,
+        color: [60, 60, 60],
+        maxWidth: contentWidth - 8,
       });
+      y += 1;
     });
-    y += 4;
+    y += 3;
   }
 
   if (warnings.length > 0) {
-    checkPage(15);
+    checkPage(10);
     doc.setFontSize(9);
     doc.setTextColor(180, 130, 0);
     doc.text('Prevention Measures:', margin + 2, y);
     y += 5;
     warnings.forEach((r, i) => {
-      const text = `${i + 1}. ${r.recommendation}`.replace(/\\n/g, '\n');
-      text.split('\n').forEach(para => {
-        const trimmed = para.trim();
-        if (!trimmed) { y += 2; return; }
-        checkPage(10);
-        doc.setFontSize(8);
-        doc.setTextColor(60, 60, 60);
-        const lines = doc.splitTextToSize(trimmed, contentWidth - 8);
-        doc.text(lines, margin + 4, y);
-        y += lines.length * 3.5 + 2;
+      drawWrappedText(`${i + 1}. ${r.recommendation}`, margin + 4, {
+        fontSize: 8,
+        color: [60, 60, 60],
+        maxWidth: contentWidth - 8,
       });
+      y += 1;
     });
   }
 
@@ -251,7 +281,7 @@ export async function generatePdfReport(data: ReportData) {
     doc.setPage(i);
     doc.setFontSize(7);
     doc.setTextColor(180, 180, 180);
-    doc.text(`LogMind Report - ${now()} - Page ${i}/${pageCount}`, margin, 290);
+    doc.text(`LogMind Report - ${now()} - Page ${i}/${pageCount}`, margin, pageHeight - 8);
   }
 
   doc.save(`LogMind_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
