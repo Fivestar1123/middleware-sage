@@ -363,25 +363,46 @@ export async function generateDocxReport(data: ReportData) {
     new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun({ text: '2. AI Analysis Results', bold: true })] }),
   );
 
-  const textToParagraphs = (text: string, opts: { size: number; color: string }) =>
+  // Body paragraphs: keep lines together within a paragraph (no mid-paragraph page break).
+  const textToParagraphs = (
+    text: string,
+    opts: { size: number; color: string; keepNext?: boolean }
+  ) =>
     text.replace(/\\n/g, '\n').split('\n').filter(l => l.trim()).map(
-      line => new Paragraph({ children: [new TextRun({ text: line.trim(), size: opts.size, color: opts.color })] })
+      (line, i, arr) => new Paragraph({
+        keepLines: true,
+        keepNext: opts.keepNext ?? (i < arr.length - 1),
+        children: [new TextRun({ text: line.trim(), size: opts.size, color: opts.color })],
+      })
     );
+
+  // Bold label paragraph that must stay attached to its body content below.
+  const labelParagraph = (label: string) =>
+    new Paragraph({
+      keepLines: true,
+      keepNext: true,
+      children: [new TextRun({ text: label, bold: true, size: 20 })],
+    });
 
   data.analysisResults.forEach(r => {
     const color = severityColor[r.severity] || '666666';
     children.push(
       new Paragraph({
         heading: HeadingLevel.HEADING_2,
+        keepLines: true,
+        keepNext: true,
         children: [new TextRun({ text: `[${r.severity.toUpperCase()}] ${r.title}`, color, bold: true })],
       }),
-      new Paragraph({ children: [new TextRun({ text: 'Root Cause:', bold: true, size: 20 })] }),
+      labelParagraph('Root Cause:'),
       ...textToParagraphs(r.cause, { size: 20, color: '444444' }),
-      new Paragraph({ children: [new TextRun({ text: 'Recommendation:', bold: true, size: 20 })] }),
+      labelParagraph('Recommendation:'),
       ...textToParagraphs(r.recommendation, { size: 20, color: '444444' }),
-      new Paragraph({ children: [new TextRun({ text: 'Impact:', bold: true, size: 20 })] }),
+      labelParagraph('Impact:'),
       ...textToParagraphs(r.impact, { size: 20, color: '444444' }),
-      new Paragraph({ children: [new TextRun({ text: `Related Lines: ${r.relatedLines.join(', ')}`, size: 16, color: '999999' })] }),
+      new Paragraph({
+        keepLines: true,
+        children: [new TextRun({ text: `Related Lines: ${r.relatedLines.join(', ')}`, size: 16, color: '999999' })],
+      }),
       new Paragraph({ children: [] }),
     );
   });
@@ -393,15 +414,18 @@ export async function generateDocxReport(data: ReportData) {
     );
     chatSummaries.forEach((s, idx) => {
       children.push(
+        // Question heading must stay attached to first body label below
         new Paragraph({
           heading: HeadingLevel.HEADING_2,
+          keepLines: true,
+          keepNext: true,
           children: [new TextRun({ text: `Q${idx + 1}. ${s.question}`, bold: true, color: '1E40AF' })],
         }),
-        new Paragraph({ children: [new TextRun({ text: 'Cause:', bold: true, size: 20 })] }),
+        labelParagraph('Cause:'),
         ...textToParagraphs(s.cause, { size: 20, color: '444444' }),
-        new Paragraph({ children: [new TextRun({ text: 'Action:', bold: true, size: 20 })] }),
+        labelParagraph('Action:'),
         ...textToParagraphs(s.action, { size: 20, color: '444444' }),
-        new Paragraph({ children: [new TextRun({ text: 'Impact:', bold: true, size: 20 })] }),
+        labelParagraph('Impact:'),
         ...textToParagraphs(s.impact, { size: 20, color: '444444' }),
         new Paragraph({ children: [] }),
       );
