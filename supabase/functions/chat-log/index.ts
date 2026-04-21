@@ -43,7 +43,7 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    const systemPrompt = `너는 10년차 시니어 미들웨어 엔지니어야. 사용자가 업로드한 미들웨어 로그(JEUS, WebtoB, Apache, Tomcat)에 대해 질문하고 있어.
+    const systemPrompt = `너는 LogMind야. 사용자가 업로드한 미들웨어 로그(JEUS, WebtoB, Apache, Tomcat)에 대해 질문하고 있어.
 
 현재 분석 중인 로그 내용:
 ---
