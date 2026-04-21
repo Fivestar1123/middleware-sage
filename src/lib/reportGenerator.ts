@@ -223,13 +223,19 @@ export async function generateDocxReport(data: ReportData) {
   const cellBorder = { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' };
   const cellBorders = { top: cellBorder, bottom: cellBorder, left: cellBorder, right: cellBorder };
 
+  const patternCounts = {
+    critical: data.analysisResults.filter(r => r.severity === 'critical').length,
+    warning: data.analysisResults.filter(r => r.severity === 'warning').length,
+    info: data.analysisResults.filter(r => r.severity === 'info').length,
+  };
+
   const overviewRows = [
     ['Report Date', now()],
     ['Target System', data.filename],
     ['Total Lines', String(data.stats.totalLines)],
-    ['Critical', String(data.stats.critical)],
-    ['Warning', String(data.stats.warning)],
-    ['Info', String(data.stats.info)],
+    ['Critical (lines / patterns)', `${data.stats.critical} lines / ${patternCounts.critical} patterns`],
+    ['Warning (lines / patterns)', `${data.stats.warning} lines / ${patternCounts.warning} patterns`],
+    ['Info (lines / patterns)', `${data.stats.info} lines / ${patternCounts.info} patterns`],
   ];
 
   const severityColor: Record<string, string> = {
