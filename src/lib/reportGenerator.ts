@@ -50,20 +50,26 @@ export async function generatePdfReport(data: ReportData) {
   doc.text('1. Incident Overview', margin, y);
   y += 8;
 
+  const patternCounts = {
+    critical: data.analysisResults.filter(r => r.severity === 'critical').length,
+    warning: data.analysisResults.filter(r => r.severity === 'warning').length,
+    info: data.analysisResults.filter(r => r.severity === 'info').length,
+  };
+
   autoTable(doc, {
     startY: y,
     margin: { left: margin, right: margin },
     theme: 'grid',
     headStyles: { fillColor: [30, 64, 175], fontSize: 9, font: koreanFontName },
     bodyStyles: { fontSize: 9, font: koreanFontName },
-    columnStyles: { 0: { cellWidth: 40, fontStyle: 'bold' } },
+    columnStyles: { 0: { cellWidth: 50, fontStyle: 'bold' } },
     body: [
       ['Report Date', now()],
       ['Target System', data.filename],
       ['Total Lines', String(data.stats.totalLines)],
-      ['Critical', String(data.stats.critical)],
-      ['Warning', String(data.stats.warning)],
-      ['Info', String(data.stats.info)],
+      ['Critical (lines / patterns)', `${data.stats.critical} lines / ${patternCounts.critical} patterns`],
+      ['Warning (lines / patterns)', `${data.stats.warning} lines / ${patternCounts.warning} patterns`],
+      ['Info (lines / patterns)', `${data.stats.info} lines / ${patternCounts.info} patterns`],
     ],
   });
   y = (doc as any).lastAutoTable.finalY + 10;
