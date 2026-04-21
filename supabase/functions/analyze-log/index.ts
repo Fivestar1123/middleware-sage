@@ -10,7 +10,7 @@ const MAX_REQUEST_BYTES = 256 * 1024;
 const MAX_LOG_CHARS = 8000;
 const TRUNCATION_SUFFIX = "\n...(truncated)";
 
-const SYSTEM_PROMPT = `너는 10년차 시니어 미들웨어 엔지니어야. JEUS, WebtoB, Apache, Tomcat 등 공공기관 미들웨어 로그를 분석하는 전문가야.
+const SYSTEM_PROMPT = `너는 LogMind야. JEUS, WebtoB, Apache, Tomcat 등 공공기관 미들웨어 로그를 분석하는 전문가야.
 
 사용자가 로그를 제공하면 다음 JSON 형식으로 분석 결과를 반환해:
 
