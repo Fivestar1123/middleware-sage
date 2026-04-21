@@ -3,6 +3,7 @@ import autoTable from 'jspdf-autotable';
 import { registerKoreanPdfFont } from './pdfFont';
 import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, HeadingLevel, BorderStyle, WidthType, ShadingType } from 'docx';
 import { saveAs } from 'file-saver';
+import { supabase } from '@/integrations/supabase/client';
 import type { AnalysisResult } from '@/data/mockLogs';
 
 interface ReportData {
@@ -12,7 +13,48 @@ interface ReportData {
   chatMessages: { role: 'user' | 'assistant'; content: string }[];
 }
 
+interface ChatSummary {
+  question: string;
+  cause: string;
+  action: string;
+  impact: string;
+}
+
 const now = () => new Date().toLocaleString('ko-KR');
+
+/** Pair user→assistant messages and request server-side summarization. */
+async function summarizeChatHistory(
+  chatMessages: ReportData['chatMessages']
+): Promise<ChatSummary[]> {
+  const pairs: { question: string; answer: string }[] = [];
+  for (let i = 0; i < chatMessages.length; i++) {
+    const m = chatMessages[i];
+    if (m.role !== 'user') continue;
+    const next = chatMessages[i + 1];
+    if (next && next.role === 'assistant') {
+      pairs.push({ question: m.content, answer: next.content });
+    }
+  }
+  if (pairs.length === 0) return [];
+
+  try {
+    const { data, error } = await supabase.functions.invoke('summarize-chat', {
+      body: { qaPairs: pairs },
+    });
+    if (error) throw error;
+    const summaries = (data as any)?.summaries;
+    if (Array.isArray(summaries) && summaries.length > 0) return summaries as ChatSummary[];
+  } catch (e) {
+    console.warn('[reportGenerator] chat summarize failed, falling back to raw:', e);
+  }
+  // Fallback: raw text
+  return pairs.map((p) => ({
+    question: p.question,
+    cause: '요약 생성 실패 - 원본 답변 참조',
+    action: p.answer,
+    impact: '해당 없음',
+  }));
+}
 
 /* ════════════════════════════════════════════
    PDF Generation
