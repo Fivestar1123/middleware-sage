@@ -316,7 +316,7 @@ export async function generateDocxReport(data: ReportData) {
     info: '3B82F6',
   };
 
-  const chatHistory = data.chatMessages.filter((_, i) => i > 0);
+  const chatSummaries = await summarizeChatHistory(data.chatMessages.filter((_, i) => i > 0));
 
   const children: any[] = [];
 
@@ -386,30 +386,30 @@ export async function generateDocxReport(data: ReportData) {
     );
   });
 
-  // Section 3: Response History
-  if (chatHistory.length > 0) {
+  // Section 3: Response History (summarized)
+  if (chatSummaries.length > 0) {
     children.push(
-      new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun({ text: '3. Response History (AI Chat)', bold: true })] }),
+      new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun({ text: '3. Response History (AI Chat - Summary)', bold: true })] }),
     );
-    chatHistory.forEach(msg => {
-      const isUser = msg.role === 'user';
-      const lines = msg.content.replace(/\\n/g, '\n').split('\n').filter(l => l.trim());
-      lines.forEach((line, i) => {
-        children.push(
-          new Paragraph({
-            children: [
-              ...(i === 0 ? [new TextRun({ text: isUser ? '[User] ' : '[AI] ', bold: true, size: 20, color: isUser ? '1E40AF' : '3B82F6' })] : []),
-              new TextRun({ text: line.trim(), size: 20, color: '444444' }),
-            ],
-          }),
-        );
-      });
+    chatSummaries.forEach((s, idx) => {
+      children.push(
+        new Paragraph({
+          heading: HeadingLevel.HEADING_2,
+          children: [new TextRun({ text: `Q${idx + 1}. ${s.question}`, bold: true, color: '1E40AF' })],
+        }),
+        new Paragraph({ children: [new TextRun({ text: 'Cause:', bold: true, size: 20 })] }),
+        ...textToParagraphs(s.cause, { size: 20, color: '444444' }),
+        new Paragraph({ children: [new TextRun({ text: 'Action:', bold: true, size: 20 })] }),
+        ...textToParagraphs(s.action, { size: 20, color: '444444' }),
+        new Paragraph({ children: [new TextRun({ text: 'Impact:', bold: true, size: 20 })] }),
+        ...textToParagraphs(s.impact, { size: 20, color: '444444' }),
+        new Paragraph({ children: [] }),
+      );
     });
-    children.push(new Paragraph({ children: [] }));
   }
 
   // Section 4: Action Guide & Prevention
-  const sectionNum = chatHistory.length > 0 ? '4' : '3';
+  const sectionNum = chatSummaries.length > 0 ? '4' : '3';
   children.push(
     new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun({ text: `${sectionNum}. Action Guide & Prevention`, bold: true })] }),
   );
