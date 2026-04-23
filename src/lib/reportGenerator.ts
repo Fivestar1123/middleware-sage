@@ -143,6 +143,7 @@ export async function generatePdfReport(data: ReportData) {
     bodyStyles: { fontSize: 9, font: koreanFontName },
     columnStyles: { 0: { cellWidth: 50, fontStyle: 'bold' } },
     body: [
+      ['Document Status', 'FINAL v1.0 (최종 버전)'],
       ['Report Date', now()],
       ['Target System', data.filename],
       ['Total Lines', String(data.stats.totalLines)],
