@@ -108,9 +108,24 @@ async function storeAnalysisEmbeddings(analyses: AnalysisResult[]) {
 
 /* ─── Small-file direct analysis (legacy, <50MB) ─── */
 
-export async function analyzeLog(logContent: string): Promise<AnalysisResponse> {
+export async function analyzeLog(
+  logContent: string,
+  priorContext?: { previousLog?: string; previousResults?: AnalysisResult[] },
+): Promise<AnalysisResponse> {
+  let finalContent = logContent;
+  if (priorContext?.previousLog || (priorContext?.previousResults && priorContext.previousResults.length > 0)) {
+    const priorSummary = (priorContext.previousResults || [])
+      .map((r, i) => `[${i + 1}] (${r.severity.toUpperCase()}) ${r.title}\n  - 원인: ${(r.cause || '').slice(0, 200)}\n  - 권장조치: ${(r.recommendation || '').slice(0, 200)}`)
+      .join('\n');
+    const prevLogSnippet = (priorContext.previousLog || '').slice(0, 4000);
+    finalContent =
+      `===== [1차 분석 컨텍스트] 이전 로그 (요약) =====\n${prevLogSnippet}\n` +
+      (priorSummary ? `\n===== [1차 분석 컨텍스트] 이전 AI 분석 결과 =====\n${priorSummary}\n` : '') +
+      `\n===== [추가 업로드된 신규 로그] — 이전 컨텍스트와 연관지어 분석하세요 =====\n${logContent}`;
+  }
+
   const { data, error } = await supabase.functions.invoke('analyze-log', {
-    body: buildDirectAnalysisPayload(logContent),
+    body: buildDirectAnalysisPayload(finalContent),
   });
   if (error) throw new Error(error.message || 'Analysis failed');
   if (data?.error) throw new Error(data.error);

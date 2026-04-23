@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Loader2, RotateCcw } from 'lucide-react';
+import { Loader2, RotateCcw, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import DashboardHeader from '@/components/DashboardHeader';
 import StatusCards from '@/components/StatusCards';
@@ -57,7 +57,12 @@ const Index = () => {
     }
   }, [user]);
 
-  const runAnalysis = useCallback(async (content: string, filename: string, file?: File) => {
+  const runAnalysis = useCallback(async (
+    content: string,
+    filename: string,
+    file?: File,
+    priorContext?: { previousLog?: string; previousResults?: AnalysisResult[] },
+  ) => {
     setIsAnalyzing(true);
     setAnalysisProgress(null);
     try {
@@ -70,10 +75,13 @@ const Index = () => {
         toast({ title: '분석 완료', description: `${result.analyses.length}개의 장애 패턴을 발견했습니다. (2단계 분석)` });
         await saveToHistory(filename, content.slice(0, 500000), result.analyses, result.stats);
       } else {
-        const result = await analyzeLog(content);
+        const result = await analyzeLog(content, priorContext);
         setAnalysisResults(result.analyses);
         setStats(result.stats);
-        toast({ title: '분석 완료', description: `${result.analyses.length}개의 장애 패턴을 발견했습니다.` });
+        toast({
+          title: priorContext ? '추가 분석 완료' : '분석 완료',
+          description: `${result.analyses.length}개의 장애 패턴을 발견했습니다.${priorContext ? ' (1차 분석 컨텍스트 반영)' : ''}`,
+        });
         await saveToHistory(filename, content, result.analyses, result.stats);
       }
     } catch (e) {
@@ -131,6 +139,19 @@ const Index = () => {
     setAnalysisResults([]);
     runAnalysis(content, filename, file);
   }, [runAnalysis]);
+
+  const handleAppendLogLoaded = useCallback((content: string, filename: string, file?: File) => {
+    const previousLog = logContent;
+    const previousResults = analysisResults;
+    const mergedFilename = currentFilename ? `${currentFilename} + ${filename}` : filename;
+    const mergedContent =
+      `===== [1차 로그] ${currentFilename || 'previous'} =====\n${previousLog}\n\n` +
+      `===== [추가 로그] ${filename} =====\n${content}`;
+    setLogContent(mergedContent);
+    setCurrentFilename(mergedFilename);
+    setCurrentFile(file || null);
+    runAnalysis(content, mergedFilename, file, { previousLog, previousResults });
+  }, [logContent, analysisResults, currentFilename, runAnalysis]);
 
   const handleMultiLogLoaded = useCallback((files: File[]) => {
     setCurrentFile(null);
@@ -202,18 +223,52 @@ const Index = () => {
           </div>
           <div className="w-full sm:w-72 sm:shrink-0 space-y-2">
             {hasLog ? (
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5 text-xs text-success flex-1">
-                  {isAnalyzing ? (
-                    <><Loader2 className="w-3.5 h-3.5 animate-spin text-primary" /><span className="text-primary">AI 분석 중...</span></>
-                  ) : (
-                    <><span>✅ 분석 완료</span></>
-                  )}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 text-xs text-success flex-1">
+                    {isAnalyzing ? (
+                      <><Loader2 className="w-3.5 h-3.5 animate-spin text-primary" /><span className="text-primary">AI 분석 중...</span></>
+                    ) : (
+                      <><span>✅ 분석 완료</span></>
+                    )}
+                  </div>
+                  <Button variant="outline" size="sm" onClick={handleReset} disabled={isAnalyzing}>
+                    <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                    새 로그
+                  </Button>
                 </div>
-                <Button variant="outline" size="sm" onClick={handleReset}>
-                  <RotateCcw className="w-3.5 h-3.5 mr-1" />
-                  새 로그
-                </Button>
+                {!isAnalyzing && analysisResults.length > 0 && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => document.getElementById('append-log-input')?.click()}
+                  >
+                    <Plus className="w-3.5 h-3.5 mr-1" />
+                    추가 로그 업로드 (1차 분석 컨텍스트 유지)
+                  </Button>
+                )}
+                <input
+                  id="append-log-input"
+                  type="file"
+                  accept=".log,.txt"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    if (f.size > 10 * 1024 * 1024) {
+                      toast({ title: '파일이 너무 큽니다', description: '추가 로그는 최대 10MB까지 가능합니다.', variant: 'destructive' });
+                      e.target.value = '';
+                      return;
+                    }
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      handleAppendLogLoaded(ev.target?.result as string, f.name, f);
+                    };
+                    reader.readAsText(f);
+                    e.target.value = '';
+                  }}
+                />
               </div>
             ) : (
               <LogUploader
