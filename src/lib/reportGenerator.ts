@@ -109,6 +109,13 @@ export async function generatePdfReport(data: ReportData) {
   doc.setFontSize(10);
   doc.setTextColor(100, 100, 100);
   doc.text('AI Log Analysis Report', margin + 45, y + 8);
+
+  // FINAL badge (top-right)
+  doc.setFillColor(30, 64, 175);
+  doc.roundedRect(pageWidth - margin - 28, y + 2, 28, 8, 1.5, 1.5, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(9);
+  doc.text('FINAL v1.0', pageWidth - margin - 24, y + 7.6);
   y += 16;
 
   doc.setDrawColor(30, 64, 175);
@@ -136,6 +143,7 @@ export async function generatePdfReport(data: ReportData) {
     bodyStyles: { fontSize: 9, font: koreanFontName },
     columnStyles: { 0: { cellWidth: 50, fontStyle: 'bold' } },
     body: [
+      ['Document Status', 'FINAL v1.0 (최종 버전)'],
       ['Report Date', now()],
       ['Target System', data.filename],
       ['Total Lines', String(data.stats.totalLines)],
@@ -281,10 +289,10 @@ export async function generatePdfReport(data: ReportData) {
     doc.setPage(i);
     doc.setFontSize(7);
     doc.setTextColor(180, 180, 180);
-    doc.text(`LogMind Report - ${now()} - Page ${i}/${pageCount}`, margin, pageHeight - 8);
+    doc.text(`LogMind Report [FINAL v1.0] - ${now()} - Page ${i}/${pageCount}`, margin, pageHeight - 8);
   }
 
-  doc.save(`LogMind_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
+  doc.save(`LogMind_Report_FINAL_v1.0_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
 /* ════════════════════════════════════════════
@@ -302,6 +310,7 @@ export async function generateDocxReport(data: ReportData) {
   };
 
   const overviewRows = [
+    ['Document Status', 'FINAL v1.0 (최종 버전)'],
     ['Report Date', now()],
     ['Target System', data.filename],
     ['Total Lines', String(data.stats.totalLines)],
@@ -325,6 +334,9 @@ export async function generateDocxReport(data: ReportData) {
     new Paragraph({
       heading: HeadingLevel.TITLE,
       children: [new TextRun({ text: 'LogMind - AI Log Analysis Report', bold: true, size: 36, color: '1E40AF' })],
+    }),
+    new Paragraph({
+      children: [new TextRun({ text: 'FINAL v1.0 (최종 버전)', bold: true, size: 22, color: 'FFFFFF', highlight: 'darkBlue' })],
     }),
     new Paragraph({ children: [] }),
   );
@@ -464,5 +476,5 @@ export async function generateDocxReport(data: ReportData) {
   });
 
   const buffer = await Packer.toBlob(docxDoc);
-  saveAs(buffer, `LogMind_Report_${new Date().toISOString().slice(0, 10)}.docx`);
+  saveAs(buffer, `LogMind_Report_FINAL_v1.0_${new Date().toISOString().slice(0, 10)}.docx`);
 }
