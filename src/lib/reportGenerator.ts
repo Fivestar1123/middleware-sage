@@ -289,10 +289,10 @@ export async function generatePdfReport(data: ReportData) {
     doc.setPage(i);
     doc.setFontSize(7);
     doc.setTextColor(180, 180, 180);
-    doc.text(`LogMind Report - ${now()} - Page ${i}/${pageCount}`, margin, pageHeight - 8);
+    doc.text(`LogMind Report [FINAL v1.0] - ${now()} - Page ${i}/${pageCount}`, margin, pageHeight - 8);
   }
 
-  doc.save(`LogMind_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
+  doc.save(`LogMind_Report_FINAL_v1.0_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
 /* ════════════════════════════════════════════
