@@ -57,7 +57,12 @@ const Index = () => {
     }
   }, [user]);
 
-  const runAnalysis = useCallback(async (content: string, filename: string, file?: File) => {
+  const runAnalysis = useCallback(async (
+    content: string,
+    filename: string,
+    file?: File,
+    priorContext?: { previousLog?: string; previousResults?: AnalysisResult[] },
+  ) => {
     setIsAnalyzing(true);
     setAnalysisProgress(null);
     try {
@@ -70,10 +75,13 @@ const Index = () => {
         toast({ title: '분석 완료', description: `${result.analyses.length}개의 장애 패턴을 발견했습니다. (2단계 분석)` });
         await saveToHistory(filename, content.slice(0, 500000), result.analyses, result.stats);
       } else {
-        const result = await analyzeLog(content);
+        const result = await analyzeLog(content, priorContext);
         setAnalysisResults(result.analyses);
         setStats(result.stats);
-        toast({ title: '분석 완료', description: `${result.analyses.length}개의 장애 패턴을 발견했습니다.` });
+        toast({
+          title: priorContext ? '추가 분석 완료' : '분석 완료',
+          description: `${result.analyses.length}개의 장애 패턴을 발견했습니다.${priorContext ? ' (1차 분석 컨텍스트 반영)' : ''}`,
+        });
         await saveToHistory(filename, content, result.analyses, result.stats);
       }
     } catch (e) {
@@ -131,6 +139,19 @@ const Index = () => {
     setAnalysisResults([]);
     runAnalysis(content, filename, file);
   }, [runAnalysis]);
+
+  const handleAppendLogLoaded = useCallback((content: string, filename: string, file?: File) => {
+    const previousLog = logContent;
+    const previousResults = analysisResults;
+    const mergedFilename = currentFilename ? `${currentFilename} + ${filename}` : filename;
+    const mergedContent =
+      `===== [1차 로그] ${currentFilename || 'previous'} =====\n${previousLog}\n\n` +
+      `===== [추가 로그] ${filename} =====\n${content}`;
+    setLogContent(mergedContent);
+    setCurrentFilename(mergedFilename);
+    setCurrentFile(file || null);
+    runAnalysis(content, mergedFilename, file, { previousLog, previousResults });
+  }, [logContent, analysisResults, currentFilename, runAnalysis]);
 
   const handleMultiLogLoaded = useCallback((files: File[]) => {
     setCurrentFile(null);
