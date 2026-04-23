@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Loader2, RotateCcw } from 'lucide-react';
+import { Loader2, RotateCcw, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import DashboardHeader from '@/components/DashboardHeader';
 import StatusCards from '@/components/StatusCards';
