@@ -109,6 +109,13 @@ export async function generatePdfReport(data: ReportData) {
   doc.setFontSize(10);
   doc.setTextColor(100, 100, 100);
   doc.text('AI Log Analysis Report', margin + 45, y + 8);
+
+  // FINAL badge (top-right)
+  doc.setFillColor(30, 64, 175);
+  doc.roundedRect(pageWidth - margin - 28, y + 2, 28, 8, 1.5, 1.5, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(9);
+  doc.text('FINAL v1.0', pageWidth - margin - 24, y + 7.6);
   y += 16;
 
   doc.setDrawColor(30, 64, 175);
