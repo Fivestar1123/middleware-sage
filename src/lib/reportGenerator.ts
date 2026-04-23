@@ -310,6 +310,7 @@ export async function generateDocxReport(data: ReportData) {
   };
 
   const overviewRows = [
+    ['Document Status', 'FINAL v1.0 (최종 버전)'],
     ['Report Date', now()],
     ['Target System', data.filename],
     ['Total Lines', String(data.stats.totalLines)],
