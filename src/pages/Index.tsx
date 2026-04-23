@@ -223,18 +223,52 @@ const Index = () => {
           </div>
           <div className="w-full sm:w-72 sm:shrink-0 space-y-2">
             {hasLog ? (
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5 text-xs text-success flex-1">
-                  {isAnalyzing ? (
-                    <><Loader2 className="w-3.5 h-3.5 animate-spin text-primary" /><span className="text-primary">AI 분석 중...</span></>
-                  ) : (
-                    <><span>✅ 분석 완료</span></>
-                  )}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 text-xs text-success flex-1">
+                    {isAnalyzing ? (
+                      <><Loader2 className="w-3.5 h-3.5 animate-spin text-primary" /><span className="text-primary">AI 분석 중...</span></>
+                    ) : (
+                      <><span>✅ 분석 완료</span></>
+                    )}
+                  </div>
+                  <Button variant="outline" size="sm" onClick={handleReset} disabled={isAnalyzing}>
+                    <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                    새 로그
+                  </Button>
                 </div>
-                <Button variant="outline" size="sm" onClick={handleReset}>
-                  <RotateCcw className="w-3.5 h-3.5 mr-1" />
-                  새 로그
-                </Button>
+                {!isAnalyzing && analysisResults.length > 0 && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => document.getElementById('append-log-input')?.click()}
+                  >
+                    <Plus className="w-3.5 h-3.5 mr-1" />
+                    추가 로그 업로드 (1차 분석 컨텍스트 유지)
+                  </Button>
+                )}
+                <input
+                  id="append-log-input"
+                  type="file"
+                  accept=".log,.txt"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    if (f.size > 10 * 1024 * 1024) {
+                      toast({ title: '파일이 너무 큽니다', description: '추가 로그는 최대 10MB까지 가능합니다.', variant: 'destructive' });
+                      e.target.value = '';
+                      return;
+                    }
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      handleAppendLogLoaded(ev.target?.result as string, f.name, f);
+                    };
+                    reader.readAsText(f);
+                    e.target.value = '';
+                  }}
+                />
               </div>
             ) : (
               <LogUploader
