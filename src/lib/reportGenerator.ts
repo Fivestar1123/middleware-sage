@@ -335,6 +335,9 @@ export async function generateDocxReport(data: ReportData) {
       heading: HeadingLevel.TITLE,
       children: [new TextRun({ text: 'LogMind - AI Log Analysis Report', bold: true, size: 36, color: '1E40AF' })],
     }),
+    new Paragraph({
+      children: [new TextRun({ text: 'FINAL v1.0 (최종 버전)', bold: true, size: 22, color: 'FFFFFF', highlight: 'darkBlue' })],
+    }),
     new Paragraph({ children: [] }),
   );
 
