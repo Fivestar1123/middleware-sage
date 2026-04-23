@@ -476,5 +476,5 @@ export async function generateDocxReport(data: ReportData) {
   });
 
   const buffer = await Packer.toBlob(docxDoc);
-  saveAs(buffer, `LogMind_Report_${new Date().toISOString().slice(0, 10)}.docx`);
+  saveAs(buffer, `LogMind_Report_FINAL_v1.0_${new Date().toISOString().slice(0, 10)}.docx`);
 }
