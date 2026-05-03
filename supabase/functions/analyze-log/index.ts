@@ -134,11 +134,11 @@ async function classifyUnknownByLLM(
 
   const sample = unknownLines.slice(0, 30).map(l => `${l.lineNo}: ${l.text}`).join("\n");
   try {
-    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const resp = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash-lite",
+        model: "gemini-2.5-flash-8b",
         messages: [
           { role: "system", content: "다음 로그 라인들을 critical/warning/info 중 하나로 분류해서 카운트만 JSON으로 반환해. 예: {\"critical\":2,\"warning\":5,\"info\":10}" },
           { role: "user", content: sample },
@@ -292,14 +292,14 @@ async function findSimilarCases(logText: string): Promise<string> {
 }
 
 async function callAnalysis(apiKey: string, userContent: string) {
-  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
+      model: "gemini-2.5-flash",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userContent },
@@ -354,18 +354,18 @@ serve(async (req) => {
       ? Math.floor(totalLines)
       : logContent.split(/\r?\n/).length;
     const truncated = truncateLogContent(logContent);
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured");
 
     // Single AI call — skip embedding/similar-case lookup (CPU-heavy, exceeds limit).
     const baseResult = await callAnalysis(
-      LOVABLE_API_KEY,
+      GEMINI_API_KEY,
       `다음 미들웨어 로그를 분석해줘:\n\n${truncated}`,
     );
 
     // Regex 1차 분류 + LLM 폴백으로 stats 정확도 향상
     const regexStats = classifyByRegex(logContent);
-    const llmStats = await classifyUnknownByLLM(LOVABLE_API_KEY, regexStats.unknownLines);
+    const llmStats = await classifyUnknownByLLM(GEMINI_API_KEY, regexStats.unknownLines);
 
     baseResult.stats = {
       critical: regexStats.critical + llmStats.critical,
