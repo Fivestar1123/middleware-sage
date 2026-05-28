@@ -67,74 +67,160 @@ export interface AnalysisProgress {
   message: string;
 }
 
-const DIRECT_ANALYSIS_MAX_CHARS = 8_000;
-const DIRECT_ANALYSIS_SUFFIX = '\n...(truncated)';
+const STAGE1_PROMPT = `너는 LogMind야. 사용자가 대용량 로그에서 필터링된 요약 데이터를 제공한다.
+
+네 역할:
+1. 제공된 에러/경고 요약과 의심 구간 정보를 분석
+2. 각 의심 구간의 위험도를 평가
+3. 상세 분석이 필요한 구간을 우선순위로 정렬하여 반환
+
+반드시 아래 JSON 형식만 반환해. 다른 텍스트 없이 JSON만:
+{
+  "suspectIntervals": [
+    {
+      "intervalIndex": 0,
+      "priority": "critical",
+      "reason": "이유 설명",
+      "timeRange": "시작 ~ 끝"
+    }
+  ],
+  "overallAssessment": "전체 평가"
+}`;
+
+const STAGE2_PROMPT = `너는 LogMind야. JEUS, WebtoB, Apache, Tomcat 등 공공기관 미들웨어 로그를 분석하는 전문가야.
+
+1차 분석에서 의심 구간으로 특정된 상세 로그를 제공한다.
+각 구간별로 최종 장애 원인을 분석하고 조치 가이드를 제시해.
+
+분석 시 특히 주의할 패턴:
+- OutOfMemoryError, GC overhead limit exceeded → 메모리 누수
+- abnormal closed, connection reset → 비정상 세션 종료
+- not closed, connection pool → 커넥션 풀 이슈
+- Thread pool exceeded → 스레드 풀 포화
+- timeout → 타임아웃
+- Full GC, STW → GC 관련 장애
+
+반드시 아래 JSON 형식만 반환해. 다른 텍스트 없이 JSON만:
+{
+  "analyses": [
+    {
+      "severity": "critical",
+      "title": "제목",
+      "cause": "원인",
+      "recommendation": "권장조치",
+      "impact": "영향범위",
+      "relatedLines": [1, 2, 3],
+      "timeRange": "시간범위"
+    }
+  ],
+  "stats": {
+    "critical": 0,
+    "warning": 0,
+    "info": 0,
+    "totalLines": 0
+  }
+}`;
+
+const STAGE3_PROMPT = `너는 LogMind야. JEUS, WebtoB, Apache, Tomcat 등 공공기관 미들웨어 로그를 분석하는 전문가야.
+
+두 개의 서로 다른 로그 파일에서 추출된 에러 구간이 제공된다.
+
+네 역할:
+1. 두 파일의 에러 구간 간 인과관계 분석
+2. 각 파일의 독립적인 문제 별도 분석
+3. 두 시스템 간의 연쇄 장애 가능성 판단
+4. 통합 조치 가이드 제시
+
+반드시 아래 JSON 형식만 반환해. 다른 텍스트 없이 JSON만:
+{
+  "analyses": [
+    {
+      "severity": "critical",
+      "title": "제목",
+      "cause": "원인",
+      "recommendation": "권장조치",
+      "impact": "영향범위",
+      "relatedLines": [1, 2, 3],
+      "timeRange": "시간범위"
+    }
+  ],
+  "stats": {
+    "critical": 0,
+    "warning": 0,
+    "info": 0,
+    "totalLines": 0
+  }
+}`;
+
 
 function countLines(text: string): number {
   if (!text) return 0;
-
   let count = 1;
   for (let i = 0; i < text.length; i += 1) {
     if (text.charCodeAt(i) === 10) count += 1;
   }
-
   return count;
 }
 
-function buildDirectAnalysisPayload(logContent: string) {
-  const truncated = logContent.length > DIRECT_ANALYSIS_MAX_CHARS;
+/* ─── Ollama 직접 호출 ─── */
 
-  return {
-    logContent: truncated
-      ? `${logContent.slice(0, DIRECT_ANALYSIS_MAX_CHARS)}${DIRECT_ANALYSIS_SUFFIX}`
-      : logContent,
-    totalLines: countLines(logContent),
-    truncated,
-  };
+const OLLAMA_URL = import.meta.env.VITE_OLLAMA_URL || 'http://192.168.28.1:11434';
+const OLLAMA_MODEL = import.meta.env.VITE_OLLAMA_MODEL || 'qwen2.5:3b';
+
+async function callOllama(systemPrompt: string, userContent: string): Promise<any> {
+  const response = await fetch(`${OLLAMA_URL}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: OLLAMA_MODEL,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent.slice(0, 6000) },
+      ],
+      stream: false,
+      format: 'json',
+      options: {
+        temperature: 0.1,
+        num_predict: 8192,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Ollama 호출 실패: ${response.status} ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  const content = data.message?.content || '';
+
+  console.log('=== Ollama 응답 원문 ===', content.slice(0, 300));
+
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      return JSON.parse(jsonMatch[0]);
+    } catch {
+      throw new Error('Ollama 응답 JSON 파싱 실패');
+    }
+  }
+
+  throw new Error('Ollama 응답에서 JSON을 찾을 수 없습니다');
 }
 
 /* ─── Store embeddings (fire-and-forget) ─── */
 
 async function storeAnalysisEmbeddings(analyses: AnalysisResult[]) {
-  if (!analyses || analyses.length === 0) return;
-  try {
-    await supabase.functions.invoke('embed-log', {
-      body: { analyses },
-    });
-  } catch (e) {
-    console.error('Failed to store embeddings:', e);
-  }
+  // Self-hosted Supabase 전환 후 활성화
+  // if (!analyses || analyses.length === 0) return;
+  // try {
+  //   await supabase.functions.invoke('embed-log', { body: { analyses } });
+  // } catch (e) {
+  //   console.error('Failed to store embeddings:', e);
+  // }
+  return;
 }
 
-/* ─── Small-file direct analysis (legacy, <50MB) ─── */
-
-export async function analyzeLog(
-  logContent: string,
-  priorContext?: { previousLog?: string; previousResults?: AnalysisResult[] },
-): Promise<AnalysisResponse> {
-  let finalContent = logContent;
-  if (priorContext?.previousLog || (priorContext?.previousResults && priorContext.previousResults.length > 0)) {
-    const priorSummary = (priorContext.previousResults || [])
-      .map((r, i) => `[${i + 1}] (${r.severity.toUpperCase()}) ${r.title}\n  - 원인: ${(r.cause || '').slice(0, 200)}\n  - 권장조치: ${(r.recommendation || '').slice(0, 200)}`)
-      .join('\n');
-    const prevLogSnippet = (priorContext.previousLog || '').slice(0, 4000);
-    finalContent =
-      `===== [1차 분석 컨텍스트] 이전 로그 (요약) =====\n${prevLogSnippet}\n` +
-      (priorSummary ? `\n===== [1차 분석 컨텍스트] 이전 AI 분석 결과 =====\n${priorSummary}\n` : '') +
-      `\n===== [추가 업로드된 신규 로그] — 이전 컨텍스트와 연관지어 분석하세요 =====\n${logContent}`;
-  }
-
-  const { data, error } = await supabase.functions.invoke('analyze-log', {
-    body: buildDirectAnalysisPayload(finalContent),
-  });
-  if (error) throw new Error(error.message || 'Analysis failed');
-  if (data?.error) throw new Error(data.error);
-  const result = data as AnalysisResponse;
-  storeAnalysisEmbeddings(result.analyses).catch(console.error);
-  return result;
-}
-
-/* ─── Large-file 2-stage analysis ─── */
+/* ─── Large-file 2-stage analysis (Ollama) ─── */
 
 export async function analyzeLargeLog(
   file: File,
@@ -157,31 +243,21 @@ export async function analyzeLargeLog(
   // Stage 1
   onProgress({ phase: 'stage1', percent: 0, message: '1차 분석: 의심 구간 식별 중...' });
 
-  const stage1Body = {
-    stage: 1,
-    summary: filterResult.summary,
-    intervals: filterResult.intervals.map(iv => ({
-      start: iv.start,
-      end: iv.end,
-      errorCount: iv.errorCount,
-      lines: iv.lines.slice(0, 30),
-    })),
-  };
+  const stage1UserContent = `다음은 대용량 로그 파일에서 필터링된 요약 정보야:\n\n${filterResult.summary}\n\n의심 구간 목록:\n${
+    filterResult.intervals.map((iv, i) =>
+      `[구간 ${i}] 시간: ${iv.start} ~ ${iv.end}, 에러 ${iv.errorCount}건, 샘플:\n${
+        iv.lines.slice(0, 20).map(l => `  L${l.lineNumber}: ${l.text}`).join('\n')
+      }`
+    ).join('\n\n')
+  }`;
 
-  const { data: stage1Data, error: stage1Error } = await supabase.functions.invoke('analyze-log-v2', {
-    body: stage1Body,
-  });
-
-  if (stage1Error) throw new Error(stage1Error.message || 'Stage 1 failed');
-  if (stage1Data?.error) throw new Error(stage1Data.error);
-
-  const stage1: Stage1Result = stage1Data;
-  onProgress({ phase: 'stage1', percent: 100, message: `${stage1.suspectIntervals.length}개 의심 구간 식별 완료` });
+  const stage1: Stage1Result = await callOllama(STAGE1_PROMPT, stage1UserContent);
+  onProgress({ phase: 'stage1', percent: 100, message: `${stage1.suspectIntervals?.length ?? 0}개 의심 구간 식별 완료` });
 
   // Stage 2
   onProgress({ phase: 'stage2', percent: 0, message: '2차 분석: 상세 원인 분석 중...' });
 
-  const topIntervals = stage1.suspectIntervals
+  const topIntervals = (stage1.suspectIntervals || [])
     .sort((a, b) => {
       const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
       return (order[a.priority] ?? 4) - (order[b.priority] ?? 4);
@@ -198,35 +274,25 @@ export async function analyzeLargeLog(
     );
   }
 
-  const { data: stage2Data, error: stage2Error } = await supabase.functions.invoke('analyze-log-v2', {
-    body: {
-      stage: 2,
-      detailedLogs: detailedParts.join('\n\n---\n\n'),
-      totalLines: filterResult.totalLines,
-    },
-  });
+  const stage2UserContent = `다음은 1차 분석에서 의심 구간으로 특정된 상세 로그야. 총 원본 라인 수: ${filterResult.totalLines}\n\n${detailedParts.join('\n\n---\n\n')}`;
 
-  if (stage2Error) throw new Error(stage2Error.message || 'Stage 2 failed');
-  if (stage2Data?.error) throw new Error(stage2Data.error);
-
+  const stage2Result = await callOllama(STAGE2_PROMPT, stage2UserContent);
   onProgress({ phase: 'done', percent: 100, message: '분석 완료' });
 
-  const result = stage2Data as AnalysisResponse;
-  // Regex 1차 분류 결과로 stats 덮어쓰기 (LLM의 추정 카운트보다 정확)
+  const result = stage2Result as AnalysisResponse;
   result.stats = filterResult.severityStats;
   storeAnalysisEmbeddings(result.analyses).catch(console.error);
   return result;
 }
 
-/* ─── Multi-file correlated analysis ─── */
+/* ─── Multi-file correlated analysis (Ollama) ─── */
 
 export async function analyzeCorrelatedLogs(
   fileA: File,
   fileB: File,
   onProgress: (p: AnalysisProgress) => void,
 ): Promise<AnalysisResponse> {
-  // Phase 1: Filter both files in parallel via Web Workers
-  onProgress({ phase: 'filtering', percent: 0, message: `파일 2개 동시 필터링 중...` });
+  onProgress({ phase: 'filtering', percent: 0, message: '파일 2개 동시 필터링 중...' });
 
   const [filterA, filterB] = await Promise.all([
     runWorkerFilter(fileA, (p) => {
@@ -238,8 +304,6 @@ export async function analyzeCorrelatedLogs(
   ]);
 
   onProgress({ phase: 'filtering', percent: 100, message: '필터링 완료' });
-
-  // Phase 2: Correlate intervals by timestamp
   onProgress({ phase: 'correlating', percent: 0, message: '타임스탬프 기반 상관관계 매칭 중...' });
 
   const pairs = correlateIntervals(fileA.name, filterA, fileB.name, filterB);
@@ -253,35 +317,31 @@ export async function analyzeCorrelatedLogs(
   }
 
   onProgress({ phase: 'correlating', percent: 100, message: `${pairs.length}개 상관 구간 매칭 완료` });
-
-  // Phase 3: Send correlated pairs to AI (stage 3)
   onProgress({ phase: 'stage2', percent: 0, message: '통합 분석: AI 상관관계 분석 중...' });
 
   const correlatedData = buildCorrelatedPayload(pairs, fileA.name, filterA, fileB.name, filterB);
 
-  const { data, error } = await supabase.functions.invoke('analyze-log-v2', {
-    body: {
-      stage: 3,
-      correlatedLogs: correlatedData,
-      fileNames: [fileA.name, fileB.name],
-      summaries: [filterA.summary, filterB.summary],
-      totalLines: filterA.totalLines + filterB.totalLines,
-    },
-  });
+  const userContent = `두 개의 로그 파일을 통합 분석해줘.
 
-  if (error) throw new Error(error.message || 'Correlated analysis failed');
-  if (data?.error) throw new Error(data.error);
+파일 목록: ${fileA.name}, ${fileB.name}
+요약:
+  [${fileA.name}] ${filterA.summary}
+  [${fileB.name}] ${filterB.summary}
+총 라인 수: ${filterA.totalLines + filterB.totalLines}
 
-  onProgress({ phase: 'done', percent: 100, message: '통합 분석 완료' });
+아래는 타임스탬프 기반으로 매칭된 상관 구간이야:
 
-  const result = data as AnalysisResponse;
-  // Regex 1차 분류 결과 합산으로 stats 덮어쓰기
+${correlatedData}`;
+
+  const result = await callOllama(STAGE3_PROMPT, userContent) as AnalysisResponse;
   result.stats = {
     critical: filterA.severityStats.critical + filterB.severityStats.critical,
     warning: filterA.severityStats.warning + filterB.severityStats.warning,
     info: filterA.severityStats.info + filterB.severityStats.info,
     totalLines: filterA.totalLines + filterB.totalLines,
   };
+
+  onProgress({ phase: 'done', percent: 100, message: '통합 분석 완료' });
   storeAnalysisEmbeddings(result.analyses).catch(console.error);
   return result;
 }
@@ -305,14 +365,11 @@ function buildCorrelatedPayload(
       );
     }
   } else {
-    // No direct correlation — send top intervals from each file independently
-    const topA = filterA.intervals.slice(0, 3);
-    const topB = filterB.intervals.slice(0, 3);
-    for (const iv of topA) {
+    for (const iv of filterA.intervals.slice(0, 3)) {
       const lines = iv.lines.slice(0, 40).map(l => `  [${nameA}] L${l.lineNumber}: ${l.text}`).join('\n');
       parts.push(`=== ${nameA} 주요 구간 [${iv.start} ~ ${iv.end}] (에러 ${iv.errorCount}건) ===\n${lines}`);
     }
-    for (const iv of topB) {
+    for (const iv of filterB.intervals.slice(0, 3)) {
       const lines = iv.lines.slice(0, 40).map(l => `  [${nameB}] L${l.lineNumber}: ${l.text}`).join('\n');
       parts.push(`=== ${nameB} 주요 구간 [${iv.start} ~ ${iv.end}] (에러 ${iv.errorCount}건) ===\n${lines}`);
     }
@@ -364,7 +421,7 @@ function runWorkerFilter(
   });
 }
 
-/* ─── Chat streaming ─── */
+/* ─── Chat streaming (Ollama) ─── */
 
 type Msg = { role: 'user' | 'assistant'; content: string };
 
@@ -379,80 +436,89 @@ export async function streamChatLog({
   onDelta: (text: string) => void;
   onDone: () => void;
 }) {
-  const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat-log`;
+  const systemContent = `너는 LogMind야. JEUS, WebtoB, Apache, Tomcat 등 공공기관 미들웨어 로그를 분석하는 전문가야.
+사용자가 로그 분석 결과에 대해 질문하면 친절하고 정확하게 답변해줘.
+${logContext ? `\n\n현재 분석 중인 로그 컨텍스트:\n${logContext.slice(0, 3000)}` : ''}`;
 
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    throw new Error('로그인이 필요합니다.');
-  }
-
-  const resp = await fetch(url, {
+  const response = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${session.access_token}`,
-      apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-    },
-    body: JSON.stringify({ messages, logContext }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: OLLAMA_MODEL,
+      messages: [
+        { role: 'system', content: systemContent },
+        ...messages,
+      ],
+      stream: true,
+      options: {
+        temperature: 0.3,
+        num_predict: 2048,
+      },
+    }),
   });
 
-  if (!resp.ok) {
-    const errData = await resp.json().catch(() => ({}));
-    throw new Error(errData.error || `Request failed (${resp.status})`);
+  if (!response.ok) {
+    throw new Error(`Ollama 스트리밍 실패: ${response.status}`);
   }
 
-  if (!resp.body) throw new Error('No response body');
+  if (!response.body) throw new Error('No response body');
 
-  const reader = resp.body.getReader();
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  let buffer = '';
-  let streamDone = false;
 
-  while (!streamDone) {
+  while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    buffer += decoder.decode(value, { stream: true });
 
-    let newlineIndex: number;
-    while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-      let line = buffer.slice(0, newlineIndex);
-      buffer = buffer.slice(newlineIndex + 1);
+    const chunk = decoder.decode(value, { stream: true });
+    const lines = chunk.split('\n').filter(Boolean);
 
-      if (line.endsWith('\r')) line = line.slice(0, -1);
-      if (line.startsWith(':') || line.trim() === '') continue;
-      if (!line.startsWith('data: ')) continue;
-
-      const jsonStr = line.slice(6).trim();
-      if (jsonStr === '[DONE]') {
-        streamDone = true;
-        break;
-      }
-
+    for (const line of lines) {
       try {
-        const parsed = JSON.parse(jsonStr);
-        const content = parsed.choices?.[0]?.delta?.content as string | undefined;
-        if (content) onDelta(content);
+        const parsed = JSON.parse(line);
+        if (parsed.message?.content) {
+          onDelta(parsed.message.content);
+        }
+        if (parsed.done) {
+          onDone();
+          return;
+        }
       } catch {
-        buffer = line + '\n' + buffer;
-        break;
+        // 불완전한 JSON 청크 무시
       }
-    }
-  }
-
-  if (buffer.trim()) {
-    for (let raw of buffer.split('\n')) {
-      if (!raw) continue;
-      if (raw.endsWith('\r')) raw = raw.slice(0, -1);
-      if (!raw.startsWith('data: ')) continue;
-      const jsonStr = raw.slice(6).trim();
-      if (jsonStr === '[DONE]') continue;
-      try {
-        const parsed = JSON.parse(jsonStr);
-        const content = parsed.choices?.[0]?.delta?.content as string | undefined;
-        if (content) onDelta(content);
-      } catch { /* ignore */ }
     }
   }
 
   onDone();
+}
+
+/* ─── Small-file direct analysis (Ollama) ─── */
+
+export async function analyzeLog(
+  logContent: string,
+  priorContext?: { previousLog?: string; previousResults?: AnalysisResult[] },
+): Promise<AnalysisResponse> {
+  let finalContent = logContent;
+
+  if (priorContext?.previousLog || (priorContext?.previousResults && priorContext.previousResults.length > 0)) {
+    const priorSummary = (priorContext.previousResults || [])
+      .map((r, i) => `[${i + 1}] (${r.severity.toUpperCase()}) ${r.title}\n  - 원인: ${(r.cause || '').slice(0, 200)}\n  - 권장조치: ${(r.recommendation || '').slice(0, 200)}`)
+      .join('\n');
+    const prevLogSnippet = (priorContext.previousLog || '').slice(0, 4000);
+    finalContent =
+      `===== [1차 분석 컨텍스트] 이전 로그 (요약) =====\n${prevLogSnippet}\n` +
+      (priorSummary ? `\n===== [1차 분석 컨텍스트] 이전 AI 분석 결과 =====\n${priorSummary}\n` : '') +
+      `\n===== [추가 업로드된 신규 로그] — 이전 컨텍스트와 연관지어 분석하세요 =====\n${logContent}`;
+  }
+
+  const truncated = finalContent.length > 8000;
+  const logSlice = truncated
+    ? `${finalContent.slice(0, 8000)}\n...(truncated)`
+    : finalContent;
+
+  const userContent = `다음 로그를 분석해줘. 총 라인 수: ${countLines(logSlice)}\n\n${logSlice}`;
+  const result = await callOllama(STAGE2_PROMPT, userContent) as AnalysisResponse;
+  result.stats = result.stats || { critical: 0, warning: 0, info: 0, totalLines: countLines(logSlice) };
+  storeAnalysisEmbeddings(result.analyses).catch(console.error);
+  return result;
 }
