@@ -167,6 +167,43 @@ function countLines(text: string): number {
 const OLLAMA_URL = import.meta.env.VITE_OLLAMA_URL || 'http://192.168.28.1:11434';
 const OLLAMA_MODEL = import.meta.env.VITE_OLLAMA_MODEL || 'qwen2.5:3b';
 
+/* ─── KLUE-RoBERTa 도메인 분류 ─── */
+
+async function classifyLogDomain(texts: string[]): Promise<{label: string; score: number; domain: string}[]> {
+  try {
+    const response = await fetch(`${KLUE_URL}/classify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texts: texts.slice(0, 20) }),
+    });
+    if (!response.ok) throw new Error('KLUE 분류 실패');
+    const data = await response.json();
+    return data.results;
+  } catch (e) {
+    console.error('KLUE-RoBERTa 분류 실패:', e);
+    return texts.map(() => ({ label: 'critical', score: 0.7, domain: 'general' }));
+  }
+}
+
+function buildDomainContext(classifications: {label: string; domain: string}[]): string {
+  const domainCount: Record<string, number> = {};
+  const severityCount: Record<string, number> = {};
+
+  for (const c of classifications) {
+    domainCount[c.domain] = (domainCount[c.domain] || 0) + 1;
+    severityCount[c.label] = (severityCount[c.label] || 0) + 1;
+  }
+
+  const topDomain = Object.entries(domainCount).sort((a, b) => b[1] - a[1])[0];
+  const domainLabel = topDomain ? topDomain[0].toUpperCase() : 'GENERAL';
+
+  return `\n\n[KLUE-RoBERTa 도메인 분류 결과]\n` +
+    `주요 도메인: ${domainLabel}\n` +
+    `도메인별 로그 수: ${Object.entries(domainCount).map(([k, v]) => `${k.toUpperCase()}(${v})`).join(', ')}\n` +
+    `심각도별 로그 수: ${Object.entries(severityCount).map(([k, v]) => `${k}(${v})`).join(', ')}\n` +
+    `위 도메인 분류를 참고하여 해당 시스템 관점에서 분석해줘.\n`;
+}
+
 async function callOllama(systemPrompt: string, userContent: string): Promise<any> {
   const response = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: 'POST',
@@ -212,6 +249,7 @@ async function callOllama(systemPrompt: string, userContent: string): Promise<an
 const QDRANT_URL = import.meta.env.VITE_QDRANT_URL || 'http://192.168.28.128:6333';
 const QDRANT_COLLECTION = 'log_embeddings';
 const KRSBERT_URL = import.meta.env.VITE_KRSBERT_URL || 'http://192.168.28.128:8001';
+const KLUE_URL = import.meta.env.VITE_KLUE_URL || 'http://192.168.28.128:8002';
 
 async function generateEmbedding(text: string): Promise<number[]> {
   try {
@@ -318,7 +356,16 @@ export async function analyzeLargeLog(
     );
   }
 
-  const stage2UserContent = `다음은 1차 분석에서 의심 구간으로 특정된 상세 로그야. 총 원본 라인 수: ${filterResult.totalLines}\n\n${detailedParts.join('\n\n---\n\n')}`;
+// KLUE-RoBERTa 도메인 분류
+  const sampleLines = detailedParts
+    .join('\n')
+    .split('\n')
+    .filter(l => l.trim())
+    .slice(0, 20);
+  const classifications = await classifyLogDomain(sampleLines);
+  const domainContext = buildDomainContext(classifications);
+
+  const stage2UserContent = `다음은 1차 분석에서 의심 구간으로 특정된 상세 로그야. 총 원본 라인 수: ${filterResult.totalLines}\n\n${detailedParts.join('\n\n---\n\n')}${domainContext}`;
 
   const stage2Result = await callOllama(STAGE2_PROMPT, stage2UserContent);
   onProgress({ phase: 'done', percent: 100, message: '분석 완료' });
