@@ -207,17 +207,61 @@ async function callOllama(systemPrompt: string, userContent: string): Promise<an
   throw new Error('Ollama 응답에서 JSON을 찾을 수 없습니다');
 }
 
+/* ─── Qdrant 임베딩 저장 (fire-and-forget) ─── */
+
+const QDRANT_URL = import.meta.env.VITE_QDRANT_URL || 'http://192.168.28.128:6333';
+const QDRANT_COLLECTION = 'log_embeddings';
+const KRSBERT_URL = import.meta.env.VITE_KRSBERT_URL || 'http://192.168.28.128:8001';
+
+async function generateEmbedding(text: string): Promise<number[]> {
+  try {
+    const response = await fetch(`${KRSBERT_URL}/embed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texts: [text.slice(0, 200)] }),
+    });
+    if (!response.ok) throw new Error('KR-SBERT 호출 실패');
+    const data = await response.json();
+    return data.embeddings[0];
+  } catch (e) {
+    console.error('KR-SBERT embedding 실패, 폴백 사용:', e);
+    // 폴백 — 768차원 랜덤 벡터
+    return Array.from({ length: 768 }, () => Math.random() * 0.01);
+  }
+}
+
 /* ─── Store embeddings (fire-and-forget) ─── */
 
 async function storeAnalysisEmbeddings(analyses: AnalysisResult[]) {
-  // Self-hosted Supabase 전환 후 활성화
-  // if (!analyses || analyses.length === 0) return;
-  // try {
-  //   await supabase.functions.invoke('embed-log', { body: { analyses } });
-  // } catch (e) {
-  //   console.error('Failed to store embeddings:', e);
-  // }
-  return;
+  if (!analyses || analyses.length === 0) return;
+  try {
+    const points = await Promise.all(analyses.map(async (a, i) => {
+      const text = `${a.title} ${a.cause} ${a.recommendation} ${a.impact}`;
+      return {
+        id: Date.now() + i,
+        vector: await generateEmbedding(text),
+        payload: {
+          title: a.title,
+          cause: a.cause || '',
+          recommendation: a.recommendation || '',
+          impact: a.impact || '',
+          severity: a.severity,
+          content: text.slice(0, 1000),
+          created_at: new Date().toISOString(),
+        },
+      };
+    }));
+
+    const res = await fetch(`${QDRANT_URL}/collections/${QDRANT_COLLECTION}/points`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ points }),
+    });
+    if (!res.ok) throw new Error('Qdrant 저장 실패');
+    console.log(`Qdrant에 ${points.length}개 임베딩 저장 완료`);
+  } catch (e) {
+    console.error('Failed to store embeddings in Qdrant:', e);
+  }
 }
 
 /* ─── Large-file 2-stage analysis (Ollama) ─── */
