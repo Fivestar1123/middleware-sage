@@ -29,15 +29,11 @@ const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }:
       const formData = new FormData();
       formData.append('file', file);
 
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-log`;
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        },
-        body: formData,
-      });
-
+  const url = `${import.meta.env.VITE_OCR_URL || 'http://192.168.28.128:8004'}/ocr`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    body: formData,
+  });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
         throw new Error(err.error || `OCR failed (${resp.status})`);
