@@ -268,6 +268,57 @@ async function generateEmbedding(text: string): Promise<number[]> {
   }
 }
 
+/* ─── Qdrant RAG 유사 사례 검색 ─── */
+
+async function searchSimilarCases(queryText: string): Promise<string> {
+  try {
+    // 1. 쿼리 텍스트 임베딩
+    const embedResponse = await fetch(`${KRSBERT_URL}/embed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texts: [queryText.slice(0, 200)] }),
+    });
+    if (!embedResponse.ok) throw new Error('임베딩 실패');
+    const embedData = await embedResponse.json();
+    const queryVector = embedData.embeddings[0];
+
+    // 2. Qdrant 유사 사례 검색
+    const searchResponse = await fetch(
+      `${QDRANT_URL}/collections/${QDRANT_COLLECTION}/points/search`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vector: queryVector,
+          limit: 3,
+          score_threshold: 0.5,
+          with_payload: true,
+        }),
+      }
+    );
+    if (!searchResponse.ok) throw new Error('Qdrant 검색 실패');
+    const searchData = await searchResponse.json();
+
+    const hits = searchData.result || [];
+    if (hits.length === 0) return '';
+
+    const cases = hits
+      .map((hit: any, i: number) =>
+        `[과거 사례 ${i + 1}] (유사도: ${(hit.score * 100).toFixed(1)}%)\n` +
+        `심각도: ${hit.payload.severity}\n` +
+        `제목: ${hit.payload.title}\n` +
+        `원인: ${hit.payload.cause}\n` +
+        `조치: ${hit.payload.recommendation}`
+      )
+      .join('\n\n');
+
+    return `\n\n--- 유사한 과거 장애 사례 ---\n${cases}\n\n위 과거 사례를 참고하여 분석해줘.`;
+  } catch (e) {
+    console.error('RAG 검색 실패:', e);
+    return '';
+  }
+}
+
 /* ─── Store embeddings (fire-and-forget) ─── */
 
 async function storeAnalysisEmbeddings(analyses: AnalysisResult[]) {
@@ -365,8 +416,10 @@ export async function analyzeLargeLog(
   const classifications = await classifyLogDomain(sampleLines);
   const domainContext = buildDomainContext(classifications);
 
-  const stage2UserContent = `다음은 1차 분석에서 의심 구간으로 특정된 상세 로그야. 총 원본 라인 수: ${filterResult.totalLines}\n\n${detailedParts.join('\n\n---\n\n')}${domainContext}`;
+// RAG 유사 사례 검색
+  const ragContext = await searchSimilarCases(detailedParts.join('\n').slice(0, 500));
 
+  const stage2UserContent = `다음은 1차 분석에서 의심 구간으로 특정된 상세 로그야. 총 원본 라인 수: ${filterResult.totalLines}\n\n${detailedParts.join('\n\n---\n\n')}${domainContext}${ragContext}`;
   const stage2Result = await callOllama(STAGE2_PROMPT, stage2UserContent);
   onProgress({ phase: 'done', percent: 100, message: '분석 완료' });
 
