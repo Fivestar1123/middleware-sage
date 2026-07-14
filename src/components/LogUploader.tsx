@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Upload, FileText, Loader2, Image, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 
@@ -17,6 +18,8 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }: LogUploaderProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [progressText, setProgressText] = useState('');
 
   const isImageFile = (file: File) => {
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
@@ -25,29 +28,53 @@ const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }:
 
   const processImageFile = useCallback(async (file: File) => {
     setIsOcrProcessing(true);
+    setUploadProgress(0);
+    setProgressText('이미지 업로드 중...');
     try {
       const formData = new FormData();
       formData.append('file', file);
 
       const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-log`;
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        },
-        body: formData,
+      const text = await new Promise<string>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url, true);
+        xhr.setRequestHeader('Authorization', `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`);
+
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const percent = Math.round((event.loaded / event.total) * 100);
+            setUploadProgress(percent);
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const res = JSON.parse(xhr.responseText);
+              if (!res.text || res.text.trim().length === 0) {
+                reject(new Error('이미지에서 로그 텍스트를 추출할 수 없습니다.'));
+              } else {
+                resolve(res.text);
+              }
+            } catch {
+              reject(new Error('OCR 응답 처리 실패'));
+            }
+          } else {
+            let errMsg = `OCR failed (${xhr.status})`;
+            try {
+              const err = JSON.parse(xhr.responseText);
+              errMsg = err.error || errMsg;
+            } catch {}
+            reject(new Error(errMsg));
+          }
+        };
+
+        xhr.onerror = () => reject(new Error('이미지 업로드 중 네트워크 오류'));
+        xhr.send(formData);
       });
 
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error || `OCR failed (${resp.status})`);
-      }
-
-      const { text } = await resp.json();
-      if (!text || text.trim().length === 0) {
-        throw new Error('이미지에서 로그 텍스트를 추출할 수 없습니다.');
-      }
-
+      setProgressText('로그 텍스트 추출 중...');
+      setUploadProgress(100);
       toast({ title: 'OCR 완료', description: '이미지에서 로그 텍스트를 추출했습니다.' });
       onLogLoaded(text, file.name);
     } catch (e) {
@@ -58,6 +85,8 @@ const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }:
       });
     } finally {
       setIsOcrProcessing(false);
+      setUploadProgress(0);
+      setProgressText('');
     }
   }, [onLogLoaded]);
 
@@ -89,9 +118,24 @@ const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }:
         });
         return;
       }
+      setProgressText('파일 읽는 중...');
+      setUploadProgress(0);
       const reader = new FileReader();
+      reader.onprogress = (e) => {
+        if (e.lengthComputable) {
+          setUploadProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
       reader.onload = (e) => {
+        setUploadProgress(100);
         onLogLoaded(e.target?.result as string, file.name, file);
+        setUploadProgress(0);
+        setProgressText('');
+      };
+      reader.onerror = () => {
+        setUploadProgress(0);
+        setProgressText('');
+        toast({ title: '파일 읽기 오류', description: '파일을 읽는 중 문제가 발생했습니다.', variant: 'destructive' });
       };
       reader.readAsText(file);
     }
@@ -111,11 +155,23 @@ const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }:
     }
   }, [handleFiles]);
 
-  if (isAnalyzing || isOcrProcessing) {
+  if (isAnalyzing || isOcrProcessing || uploadProgress > 0) {
     return (
-      <div className="flex items-center gap-2 text-xs text-primary">
-        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-        <span>{isOcrProcessing ? '이미지에서 로그 추출 중...' : 'AI 분석 중...'}</span>
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 text-xs text-primary">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          <span>
+            {isOcrProcessing
+              ? progressText || '이미지에서 로그 추출 중...'
+              : uploadProgress > 0
+                ? progressText || '파일 읽는 중...'
+                : 'AI 분석 중...'}
+          </span>
+        </div>
+        {(isOcrProcessing || uploadProgress > 0) && (
+          <Progress value={uploadProgress} className="h-1.5" />
+        )}
+        <p className="text-[10px] text-muted-foreground text-right">{uploadProgress}%</p>
       </div>
     );
   }
