@@ -143,6 +143,8 @@ const FileSplitter = () => {
     toast({ title: '삭제 완료' });
   }, [user]);
 
+  const splitFileRef = useRef<((f: File, mb: number) => void) | null>(null);
+
   const handleResplit = useCallback(async (entry: SplitHistoryEntry) => {
     if (!entry.file_path) {
       toast({ title: '파일 없음', description: '저장된 원본 파일이 없어 다시 분할할 수 없습니다.', variant: 'destructive' });
@@ -165,8 +167,7 @@ const FileSplitter = () => {
     const text = await slice.text();
     const lines = text.split('\n').slice(0, 100);
     setPreview(lines.join('\n'));
-    // 저장된 분할 설정으로 즉시 재분할 실행
-    void splitFile(f, entry.chunk_size_mb);
+    splitFileRef.current?.(f, entry.chunk_size_mb);
   }, []);
 
 
