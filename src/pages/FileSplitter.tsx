@@ -170,6 +170,13 @@ const FileSplitter = () => {
 
   const splitFileRef = useRef<((f: File, mb: number) => void) | null>(null);
 
+  // Resolve a chunk's blob: prefer in-memory, otherwise lazy-load from IndexedDB.
+  const resolveChunkBlob = useCallback(async (chunk: ChunkInfo): Promise<Blob | null> => {
+    if (chunk.blob) return chunk.blob;
+    if (chunk.entryId) return await getChunkBlob(chunk.entryId, chunk.name);
+    return null;
+  }, []);
+
   const handleResplit = useCallback(async (entry: SplitHistoryEntry) => {
     if (!entry.file_path) {
       toast({ title: '파일 없음', description: '저장된 데이터가 없어 불러올 수 없습니다.', variant: 'destructive' });
