@@ -28,29 +28,53 @@ const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }:
 
   const processImageFile = useCallback(async (file: File) => {
     setIsOcrProcessing(true);
+    setUploadProgress(0);
+    setProgressText('이미지 업로드 중...');
     try {
       const formData = new FormData();
       formData.append('file', file);
 
       const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-log`;
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        },
-        body: formData,
+      const text = await new Promise<string>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url, true);
+        xhr.setRequestHeader('Authorization', `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`);
+
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const percent = Math.round((event.loaded / event.total) * 100);
+            setUploadProgress(percent);
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const res = JSON.parse(xhr.responseText);
+              if (!res.text || res.text.trim().length === 0) {
+                reject(new Error('이미지에서 로그 텍스트를 추출할 수 없습니다.'));
+              } else {
+                resolve(res.text);
+              }
+            } catch {
+              reject(new Error('OCR 응답 처리 실패'));
+            }
+          } else {
+            let errMsg = `OCR failed (${xhr.status})`;
+            try {
+              const err = JSON.parse(xhr.responseText);
+              errMsg = err.error || errMsg;
+            } catch {}
+            reject(new Error(errMsg));
+          }
+        };
+
+        xhr.onerror = () => reject(new Error('이미지 업로드 중 네트워크 오류'));
+        xhr.send(formData);
       });
 
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error || `OCR failed (${resp.status})`);
-      }
-
-      const { text } = await resp.json();
-      if (!text || text.trim().length === 0) {
-        throw new Error('이미지에서 로그 텍스트를 추출할 수 없습니다.');
-      }
-
+      setProgressText('로그 텍스트 추출 중...');
+      setUploadProgress(100);
       toast({ title: 'OCR 완료', description: '이미지에서 로그 텍스트를 추출했습니다.' });
       onLogLoaded(text, file.name);
     } catch (e) {
@@ -61,6 +85,8 @@ const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }:
       });
     } finally {
       setIsOcrProcessing(false);
+      setUploadProgress(0);
+      setProgressText('');
     }
   }, [onLogLoaded]);
 
