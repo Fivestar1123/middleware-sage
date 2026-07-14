@@ -662,7 +662,9 @@ const FileSplitter = () => {
                               <span>{date.toLocaleDateString('ko-KR')} {date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
                               <span>•</span>
                               <span>{(entry.original_size / (1024 * 1024)).toFixed(1)}MB → {entry.chunk_size_mb}MB × {entry.chunk_count}개</span>
-                            </div>
+                            {entry.is_zip && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30">캐시됨</span>
+                            )}
                           </div>
                           <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                             {entry.file_path && (
@@ -676,19 +678,23 @@ const FileSplitter = () => {
                                     toast({ title: '다운로드 실패', description: error?.message || '알 수 없는 오류', variant: 'destructive' });
                                     return;
                                   }
+                                  const dlName = entry.is_zip
+                                    ? `${entry.filename.replace(/\.[^.]+$/, '')}_split.zip`
+                                    : entry.filename;
                                   const url = URL.createObjectURL(data);
                                   const a = document.createElement('a');
                                   a.href = url;
-                                  a.download = entry.filename;
+                                  a.download = dlName;
                                   a.click();
                                   URL.revokeObjectURL(url);
                                   toast({ title: '다운로드 완료' });
                                 }}
-                                title="원본 파일 다운로드"
+                                title={entry.is_zip ? '분할 ZIP 다운로드' : '원본 파일 다운로드'}
                               >
                                 <Download className="w-3 h-3" />
                               </Button>
                             )}
+
                             <Button
                               variant="ghost"
                               size="sm"
