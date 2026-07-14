@@ -192,6 +192,37 @@ const FileSplitter = () => {
     if (f) handleFile(f);
   }, [handleFile]);
 
+  const detectAnomalies = useCallback(async (list: ChunkInfo[]) => {
+    for (let i = 0; i < list.length; i++) {
+      const chunk = list[i];
+      setChunks(prev => prev.map((c, idx) => idx === i ? { ...c, analysis: { ...c.analysis, status: 'analyzing' } } : c));
+      try {
+        const text = await chunk.blob.text();
+        const { data, error } = await supabase.functions.invoke('analyze-chunk', { body: { text } });
+        if (error || data?.error) throw new Error(error?.message || data?.error || 'analyze-chunk failed');
+        setChunks(prev => prev.map((c, idx) => idx === i ? {
+          ...c,
+          analysis: {
+            status: 'done',
+            firstTime: data.firstTime,
+            lastTime: data.lastTime,
+            errorCount: data.errorCount,
+            warnCount: data.warnCount,
+            anomalies: data.anomalies,
+            spikes: data.spikes,
+          },
+        } : c));
+      } catch (e) {
+        setChunks(prev => prev.map((c, idx) => idx === i ? {
+          ...c,
+          analysis: { status: 'error', error: e instanceof Error ? e.message : 'unknown' },
+        } : c));
+      }
+    }
+  }, []);
+
+
+
   const handleSplit = useCallback(async () => {
     if (!file || authLoading) return;
 
