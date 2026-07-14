@@ -67,8 +67,9 @@ export interface AnalysisProgress {
   message: string;
 }
 
-const DIRECT_ANALYSIS_MAX_CHARS = 8_000;
+const DIRECT_ANALYSIS_MAX_CHARS = 24_000;
 const DIRECT_ANALYSIS_SUFFIX = '\n...(truncated)';
+const RELEVANT_LINE_RE = /\b(ERROR|FATAL|CRITICAL|PANIC|SEVERE|EXCEPTION|FAIL(ED|URE)?|WARN(ING)?|OutOfMemory|StackOverflow|timeout|refused|reset|abnormal|deadlock|overflow|exceeded|leak)\b/i;
 
 function countLines(text: string): number {
   if (!text) return 0;
@@ -82,14 +83,40 @@ function countLines(text: string): number {
 }
 
 function buildDirectAnalysisPayload(logContent: string) {
-  const truncated = logContent.length > DIRECT_ANALYSIS_MAX_CHARS;
+  if (logContent.length <= DIRECT_ANALYSIS_MAX_CHARS) {
+    return { logContent, totalLines: countLines(logContent), truncated: false };
+  }
+
+  // DEBUG 스팸이 많은 로그에서도 ERROR/WARN 라인이 잘려나가지 않도록 관련 라인을 우선 추출
+  const lines = logContent.split('\n');
+  const relevant: string[] = [];
+  let budget = DIRECT_ANALYSIS_MAX_CHARS;
+
+  for (let i = 0; i < lines.length && budget > 0; i++) {
+    const line = lines[i];
+    if (!RELEVANT_LINE_RE.test(line)) continue;
+    const prefix = `L${i + 1}: ${line}`;
+    if (prefix.length + 1 > budget) break;
+    relevant.push(prefix);
+    budget -= prefix.length + 1;
+    // 스택 트레이스(들여쓰기 라인) 최대 8줄 함께 포함
+    for (let j = i + 1; j < lines.length && j < i + 9; j++) {
+      if (!/^\s+at\s|^\s*Caused by|^\s*\.\.\./.test(lines[j])) break;
+      const trace = `    ${lines[j]}`;
+      if (trace.length + 1 > budget) break;
+      relevant.push(trace);
+      budget -= trace.length + 1;
+    }
+  }
+
+  const body = relevant.length > 0
+    ? `[관련 라인 발췌 — 전체 ${lines.length}줄 중 ERROR/WARN/Exception 등]\n${relevant.join('\n')}`
+    : logContent.slice(0, DIRECT_ANALYSIS_MAX_CHARS);
 
   return {
-    logContent: truncated
-      ? `${logContent.slice(0, DIRECT_ANALYSIS_MAX_CHARS)}${DIRECT_ANALYSIS_SUFFIX}`
-      : logContent,
+    logContent: `${body}${DIRECT_ANALYSIS_SUFFIX}`,
     totalLines: countLines(logContent),
-    truncated,
+    truncated: true,
   };
 }
 
