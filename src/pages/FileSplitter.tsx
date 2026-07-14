@@ -214,14 +214,18 @@ const FileSplitter = () => {
         const blob = file.slice(start, end);
         const name = `${baseName}_part${String(i + 1).padStart(3, '0')}${ext}`;
         zip.file(name, blob);
-        resultChunks.push({ name, size: end - start, blob });
+        resultChunks.push({ name, size: end - start, blob, analysis: { status: 'pending' } });
         setProgress(Math.round(((i + 1) / totalChunks) * 100));
         if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
       }
 
       zipRef.current = zip;
       setChunks(resultChunks);
-      toast({ title: '분할 완료', description: `${resultChunks.length}개 파일로 분할되었습니다.` });
+      toast({ title: '분할 완료', description: `${resultChunks.length}개 파일로 분할되었습니다. 이상탐지를 시작합니다.` });
+
+      // Kick off anomaly detection for each chunk (sequential)
+      void detectAnomalies(resultChunks);
+
 
       const currentUser = await resolveUser();
       if (!currentUser) {
