@@ -415,29 +415,42 @@ const FileSplitter = () => {
     const chunk = chunks[index];
     if (!chunk) return;
     setSelectedChunk(index);
-    const text = await chunk.blob.text();
-    const lines = text.split('\n').slice(0, 50);
+    const blob = await resolveChunkBlob(chunk);
+    if (!blob) {
+      toast({ title: '청크 로드 실패', description: '데이터를 찾을 수 없습니다.', variant: 'destructive' });
+      return;
+    }
+    // Read only the head via blob.slice so a large chunk isn't fully materialized.
+    const headText = await blob.slice(0, 64 * 1024).text();
+    const lines = headText.split('\n').slice(0, 50);
     setChunkPreview(lines.join('\n'));
     setIsPreviewOpen(true);
-  }, [chunks]);
+  }, [chunks, resolveChunkBlob]);
 
-  const handleChunkDownload = useCallback((index: number) => {
+  const handleChunkDownload = useCallback(async (index: number) => {
     const chunk = chunks[index];
     if (!chunk) return;
-    const url = URL.createObjectURL(chunk.blob);
+    const blob = await resolveChunkBlob(chunk);
+    if (!blob) {
+      toast({ title: '다운로드 실패', description: '데이터를 찾을 수 없습니다.', variant: 'destructive' });
+      return;
+    }
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = chunk.name;
     a.click();
     URL.revokeObjectURL(url);
     toast({ title: '다운로드 완료', description: `${chunk.name} 파일이 다운로드되었습니다.` });
-  }, [chunks]);
+  }, [chunks, resolveChunkBlob]);
 
   const handleChunkAnalyze = useCallback(async (index: number) => {
     const chunk = chunks[index];
     if (!chunk) return;
     try {
-      const text = await chunk.blob.text();
+      const blob = await resolveChunkBlob(chunk);
+      if (!blob) throw new Error('청크 데이터를 찾을 수 없습니다.');
+      const text = await blob.text();
       const { setPendingSplitterChunk } = await import('@/lib/splitterTransfer');
       setPendingSplitterChunk(text, chunk.name);
       navigate('/');
