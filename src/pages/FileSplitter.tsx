@@ -292,6 +292,8 @@ const FileSplitter = () => {
     }
   }, [authLoading, detectAnomalies, resolveUser, saveHistory]);
 
+  splitFileRef.current = splitFile;
+
   const handleSplit = useCallback(() => {
     if (file) void splitFile(file, chunkSizeMB);
   }, [file, chunkSizeMB, splitFile]);
