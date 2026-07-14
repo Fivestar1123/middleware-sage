@@ -106,7 +106,7 @@ const FileSplitter = () => {
     if (error) {
       console.error('Failed to fetch split history:', error);
     } else {
-      setSplitHistory(data as SplitHistoryEntry[]);
+      setSplitHistory(data as unknown as SplitHistoryEntry[]);
     }
 
     setHistoryLoading(false);
