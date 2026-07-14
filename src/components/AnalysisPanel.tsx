@@ -29,6 +29,13 @@ const AnalysisPanel = ({ results, onHoverLines, isLoading }: AnalysisPanelProps)
             <Loader2 className="w-4 h-4 animate-spin mr-2" />AI가 로그를 분석하고 있습니다...
           </div>
         )}
+        {!isLoading && results.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-xs text-muted-foreground text-center px-4 gap-1">
+            <Info className="w-5 h-5 mb-1 opacity-60" />
+            <p>탐지된 이상 패턴이 없습니다.</p>
+            <p className="opacity-70">로그가 대부분 DEBUG/INFO이거나 ERROR·Exception 라인이 포함되지 않은 것 같습니다.</p>
+          </div>
+        )}
         {results.map((result, idx) => {
           const config = severityConfig[result.severity];
           const Icon = config.icon;
