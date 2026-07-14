@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Scissors, Upload, Download, FileText, Trash2, Eye, Play, Search, History, Clock, Loader2, AlertTriangle, ShieldAlert, ShieldCheck } from 'lucide-react';
-import JSZip from 'jszip';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,6 +11,7 @@ import DashboardHeader from '@/components/DashboardHeader';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { extractZipStream, generateZipInWorker, terminateZipWorker } from '@/lib/zipWorkerClient';
 
 interface SplitHistoryEntry {
   id: string;
@@ -69,8 +69,8 @@ const FileSplitter = () => {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [splitHistory, setSplitHistory] = useState<SplitHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
-  const zipRef = useRef<JSZip | null>(null);
   const cachedZipBlobRef = useRef<Blob | null>(null);
+  const pendingEntriesRef = useRef<{ name: string; blob: Blob }[] | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const resolveUser = useCallback(async () => {
@@ -116,6 +116,15 @@ const FileSplitter = () => {
   useEffect(() => {
     fetchHistory();
   }, [fetchHistory]);
+
+  // Tear down the JSZip worker when leaving the page so its heap is reclaimed.
+  useEffect(() => {
+    return () => {
+      cachedZipBlobRef.current = null;
+      pendingEntriesRef.current = null;
+      terminateZipWorker();
+    };
+  }, []);
 
   const saveHistory = useCallback(async (
     filename: string,
@@ -176,17 +185,25 @@ const FileSplitter = () => {
       try {
         // Cache the downloaded zip blob for later re-download without regenerating.
         cachedZipBlobRef.current = data;
-        const zip = await JSZip.loadAsync(data);
+        const cachedByName = new Map(entry.analysis.map(c => [c.name, c]));
+        const names = entry.analysis.map(c => c.name);
         const restored: ChunkInfo[] = [];
-        // Extract chunks one-by-one and drop them from JSZip to free memory.
-        for (const cached of entry.analysis) {
-          const zEntry = zip.file(cached.name);
-          if (!zEntry) continue;
-          const blob = await zEntry.async('blob');
-          restored.push({ name: cached.name, size: cached.size ?? blob.size, blob, analysis: cached.analysis });
-          zip.remove(cached.name);
-        }
-        zipRef.current = null; 
+        let processed = 0;
+        // Stream chunks from the worker; each blob is added immediately and the
+        // worker drops its JSZip reference after posting, so memory stays bounded.
+        await extractZipStream(data, names, (name, blob) => {
+          if (!blob) return;
+          const cached = cachedByName.get(name);
+          restored.push({
+            name,
+            size: cached?.size ?? blob.size,
+            blob,
+            analysis: cached?.analysis ?? { status: 'pending' },
+          });
+          processed++;
+          setProgress(Math.round((processed / names.length) * 100));
+        });
+        cachedByName.clear();
         // Lightweight placeholder file (no bytes) to avoid duplicating the zip in memory.
         const virtualFile = new File([], entry.filename, { type: 'application/zip' });
         setFile(virtualFile);
@@ -215,7 +232,7 @@ const FileSplitter = () => {
     setChunks([]);
     setProgress(0);
     setSelectedChunk(null);
-    zipRef.current = null; cachedZipBlobRef.current = null;
+    cachedZipBlobRef.current = null; pendingEntriesRef.current = null;
     const slice = f.slice(0, 50_000);
     const text = await slice.text();
     const lines = text.split('\n').slice(0, 100);
@@ -235,7 +252,7 @@ const FileSplitter = () => {
     setChunks([]);
     setProgress(0);
     setSelectedChunk(null);
-    zipRef.current = null; cachedZipBlobRef.current = null;
+    cachedZipBlobRef.current = null; pendingEntriesRef.current = null;
 
     const slice = f.slice(0, 50_000);
     const text = await slice.text();
@@ -292,23 +309,23 @@ const FileSplitter = () => {
     try {
       const chunkSize = chunkMb * 1024 * 1024;
       const totalChunks = Math.ceil(targetFile.size / chunkSize);
-      const zip = new JSZip();
       const baseName = targetFile.name.replace(/\.[^.]+$/, '');
       const ext = targetFile.name.includes('.') ? targetFile.name.slice(targetFile.name.lastIndexOf('.')) : '.txt';
       const resultChunks: ChunkInfo[] = [];
+      const entries: { name: string; blob: Blob }[] = [];
 
       for (let i = 0; i < totalChunks; i++) {
         const start = i * chunkSize;
         const end = Math.min(start + chunkSize, targetFile.size);
         const blob = targetFile.slice(start, end);
         const name = `${baseName}_part${String(i + 1).padStart(3, '0')}${ext}`;
-        zip.file(name, blob);
+        entries.push({ name, blob });
         resultChunks.push({ name, size: end - start, blob, analysis: { status: 'pending' } });
         setProgress(Math.round(((i + 1) / totalChunks) * 100));
         if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
       }
 
-      zipRef.current = zip;
+      pendingEntriesRef.current = entries;
       setChunks(resultChunks);
       toast({ title: '분할 완료', description: `${resultChunks.length}개 파일로 분할되었습니다. 이상탐지를 시작합니다.` });
 
@@ -324,7 +341,12 @@ const FileSplitter = () => {
       const analyzed = await detectAnomalies(resultChunks);
 
       try {
-        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        // Build the zip in the worker to keep the main thread responsive and
+        // avoid duplicating large decompressed buffers here.
+        const zipBlob = await generateZipInWorker(entries);
+        // Free the entries reference right away — worker owns its own copy.
+        pendingEntriesRef.current = null;
+        cachedZipBlobRef.current = zipBlob;
         const storagePath = `${currentUser.id}/${Date.now()}_${baseName}_chunks.zip`;
         const { error: uploadErr } = await supabase.storage.from('split-files').upload(storagePath, zipBlob, {
           contentType: 'application/zip',
@@ -338,6 +360,8 @@ const FileSplitter = () => {
         await saveHistory(targetFile.name, targetFile.size, chunkMb, resultChunks.length, storagePath, currentUser.id, true, cached);
       } catch (e) {
         console.error('Cache save failed:', e);
+      } finally {
+        pendingEntriesRef.current = null;
       }
     } catch (error) {
       console.error('Split failed:', error);
@@ -362,9 +386,10 @@ const FileSplitter = () => {
     if (!file) return;
     let blob: Blob | null = cachedZipBlobRef.current;
     if (!blob) {
-      if (!zipRef.current) return;
+      if (!pendingEntriesRef.current) return;
       toast({ title: 'ZIP 생성 중...', description: '잠시만 기다려주세요.' });
-      blob = await zipRef.current.generateAsync({ type: 'blob' });
+      blob = await generateZipInWorker(pendingEntriesRef.current);
+      cachedZipBlobRef.current = blob;
     }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -422,7 +447,7 @@ const FileSplitter = () => {
     setChunks([]);
     setProgress(0);
     setSelectedChunk(null);
-    zipRef.current = null; cachedZipBlobRef.current = null;
+    cachedZipBlobRef.current = null; pendingEntriesRef.current = null;
   }, []);
 
   const estimatedChunks = file ? Math.ceil(file.size / (chunkSizeMB * 1024 * 1024)) : 0;
