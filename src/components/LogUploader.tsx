@@ -18,6 +18,8 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }: LogUploaderProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [progressText, setProgressText] = useState('');
 
   const isImageFile = (file: File) => {
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
