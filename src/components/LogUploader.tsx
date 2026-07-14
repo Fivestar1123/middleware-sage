@@ -118,9 +118,24 @@ const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }:
         });
         return;
       }
+      setProgressText('파일 읽는 중...');
+      setUploadProgress(0);
       const reader = new FileReader();
+      reader.onprogress = (e) => {
+        if (e.lengthComputable) {
+          setUploadProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
       reader.onload = (e) => {
+        setUploadProgress(100);
         onLogLoaded(e.target?.result as string, file.name, file);
+        setUploadProgress(0);
+        setProgressText('');
+      };
+      reader.onerror = () => {
+        setUploadProgress(0);
+        setProgressText('');
+        toast({ title: '파일 읽기 오류', description: '파일을 읽는 중 문제가 발생했습니다.', variant: 'destructive' });
       };
       reader.readAsText(file);
     }
