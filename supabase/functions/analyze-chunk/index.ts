@@ -19,9 +19,11 @@ interface AnalyzeResult {
   spikes: { bucket: string; count: number; avg: number }[];
 }
 
-// Match common timestamp prefixes: [YYYY-MM-DD HH:MM:SS...] or YYYY-MM-DDTHH:MM:SS or "YYYY/MM/DD HH:MM:SS"
+// Anchored at line start (with optional leading whitespace/bracket) to avoid matching
+// arbitrary digits mid-line. Supports separators: '-', '/', '.' (JEUS uses dots).
+// e.g. "[2026-07-02 10:22:00]", "2026/07/02T10:22:00.123", "2026.07.02 10:22:00,456"
 const TS_REGEX =
-  /(\d{4}[-/]\d{2}[-/]\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?)/;
+  /^[\s\[\(<]*(\d{4})[-/.](\d{2})[-/.](\d{2})[T\s]+(\d{2}):(\d{2}):(\d{2})(?:[.,]\d+)?/;
 
 // Tier 1 rules
 const TIER1_RULES: { re: RegExp; severity: Anomaly['severity']; reason: string }[] = [
@@ -37,13 +39,18 @@ const TIER1_RULES: { re: RegExp; severity: Anomaly['severity']; reason: string }
 
 function extractTimestamp(line: string): string | null {
   const m = line.match(TS_REGEX);
-  return m ? m[1].replace('T', ' ').replace(',', '.') : null;
+  if (!m) return null;
+  const [, y, mo, d, h, mi, s] = m;
+  const year = +y, month = +mo, day = +d, hour = +h, min = +mi, sec = +s;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  if (hour > 23 || min > 59 || sec > 59) return null;
+  if (year < 1990 || year > 2100) return null;
+  return `${y}-${mo}-${d} ${h}:${mi}:${s}`;
 }
 
 function toDate(ts: string | null): Date | null {
   if (!ts) return null;
-  const normalized = ts.replace(/\//g, '-').replace(' ', 'T');
-  const d = new Date(normalized);
+  const d = new Date(ts.replace(' ', 'T') + 'Z');
   return isNaN(d.getTime()) ? null : d;
 }
 
