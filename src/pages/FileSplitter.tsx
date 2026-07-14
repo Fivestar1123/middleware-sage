@@ -186,7 +186,7 @@ const FileSplitter = () => {
           restored.push({ name: cached.name, size: cached.size ?? blob.size, blob, analysis: cached.analysis });
           zip.remove(cached.name);
         }
-        zipRef.current = null;
+        zipRef.current = null; 
         // Lightweight placeholder file (no bytes) to avoid duplicating the zip in memory.
         const virtualFile = new File([], entry.filename, { type: 'application/zip' });
         setFile(virtualFile);
@@ -215,7 +215,7 @@ const FileSplitter = () => {
     setChunks([]);
     setProgress(0);
     setSelectedChunk(null);
-    zipRef.current = null;
+    zipRef.current = null; cachedZipBlobRef.current = null;
     const slice = f.slice(0, 50_000);
     const text = await slice.text();
     const lines = text.split('\n').slice(0, 100);
@@ -235,7 +235,7 @@ const FileSplitter = () => {
     setChunks([]);
     setProgress(0);
     setSelectedChunk(null);
-    zipRef.current = null;
+    zipRef.current = null; cachedZipBlobRef.current = null;
 
     const slice = f.slice(0, 50_000);
     const text = await slice.text();
@@ -422,7 +422,7 @@ const FileSplitter = () => {
     setChunks([]);
     setProgress(0);
     setSelectedChunk(null);
-    zipRef.current = null;
+    zipRef.current = null; cachedZipBlobRef.current = null;
   }, []);
 
   const estimatedChunks = file ? Math.ceil(file.size / (chunkSizeMB * 1024 * 1024)) : 0;
