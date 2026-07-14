@@ -662,11 +662,13 @@ const FileSplitter = () => {
                               <span>{date.toLocaleDateString('ko-KR')} {date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
                               <span>•</span>
                               <span>{(entry.original_size / (1024 * 1024)).toFixed(1)}MB → {entry.chunk_size_mb}MB × {entry.chunk_count}개</span>
-                            {entry.is_zip && (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30">캐시됨</span>
-                            )}
+                              {entry.is_zip && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30">캐시됨</span>
+                              )}
+                            </div>
                           </div>
                           <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+
                             {entry.file_path && (
                               <Button
                                 variant="ghost"
