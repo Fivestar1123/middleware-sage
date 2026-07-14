@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Scissors, Upload, Download, FileText, Trash2, Eye, Play, Search, History, Clock, Loader2, AlertTriangle, ShieldAlert, ShieldCheck } from 'lucide-react';
-import JSZip from 'jszip';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,6 +11,7 @@ import DashboardHeader from '@/components/DashboardHeader';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { extractZipStream, generateZipInWorker, terminateZipWorker } from '@/lib/zipWorkerClient';
 
 interface SplitHistoryEntry {
   id: string;
