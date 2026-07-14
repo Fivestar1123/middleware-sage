@@ -282,7 +282,9 @@ const FileSplitter = () => {
       const chunk = results[i];
       setChunks(prev => prev.map((c, idx) => idx === i ? { ...c, analysis: { ...c.analysis, status: 'analyzing' } } : c));
       try {
-        const text = await chunk.blob.text();
+        const blob = await resolveChunkBlob(chunk);
+        if (!blob) throw new Error('청크 데이터를 찾을 수 없습니다.');
+        const text = await blob.text();
         const { data, error } = await supabase.functions.invoke('analyze-chunk', { body: { text } });
         if (error || data?.error) throw new Error(error?.message || data?.error || 'analyze-chunk failed');
         const analysis: ChunkAnalysis = {
