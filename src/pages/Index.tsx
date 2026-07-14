@@ -17,7 +17,7 @@ import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
-const LARGE_FILE_THRESHOLD = 10 * 1024 * 1024; // 10MB (테스트 한도)
+const LARGE_FILE_THRESHOLD = 5 * 1024 * 1024; // 5MB
 
 interface Stats {
   critical: number;
@@ -256,8 +256,8 @@ const Index = () => {
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (!f) return;
-                    if (f.size > 10 * 1024 * 1024) {
-                      toast({ title: '파일이 너무 큽니다', description: '추가 로그는 최대 10MB까지 가능합니다.', variant: 'destructive' });
+                    if (f.size > LARGE_FILE_THRESHOLD) {
+                      toast({ title: '파일이 너무 큽니다', description: '추가 로그는 최대 5MB까지 가능합니다.', variant: 'destructive' });
                       e.target.value = '';
                       return;
                     }
