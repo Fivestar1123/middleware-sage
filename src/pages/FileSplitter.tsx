@@ -20,8 +20,16 @@ interface SplitHistoryEntry {
   chunk_size_mb: number;
   chunk_count: number;
   file_path: string | null;
+  is_zip?: boolean;
+  analysis?: CachedChunk[] | null;
   created_at: string;
 }
+interface CachedChunk {
+  name: string;
+  size: number;
+  analysis: ChunkAnalysis;
+}
+
 interface ChunkAnomaly {
   severity: 'critical' | 'high' | 'medium';
   lineNumber: number;
@@ -98,7 +106,7 @@ const FileSplitter = () => {
     if (error) {
       console.error('Failed to fetch split history:', error);
     } else {
-      setSplitHistory(data as SplitHistoryEntry[]);
+      setSplitHistory(data as unknown as SplitHistoryEntry[]);
     }
 
     setHistoryLoading(false);
@@ -115,6 +123,8 @@ const FileSplitter = () => {
     count: number,
     filePath: string,
     userId: string,
+    isZip: boolean = false,
+    analysis: CachedChunk[] | null = null,
   ) => {
     const { error } = await supabase.from('split_history').insert({
       user_id: userId,
@@ -123,6 +133,8 @@ const FileSplitter = () => {
       chunk_size_mb: chunkMb,
       chunk_count: count,
       file_path: filePath || null,
+      is_zip: isZip,
+      analysis: analysis as unknown as never,
     });
 
     if (error) {
@@ -133,6 +145,7 @@ const FileSplitter = () => {
 
     await fetchHistory();
   }, [fetchHistory]);
+
 
   const deleteHistory = useCallback(async (entry: SplitHistoryEntry) => {
     if (entry.file_path && user) {
@@ -147,9 +160,45 @@ const FileSplitter = () => {
 
   const handleResplit = useCallback(async (entry: SplitHistoryEntry) => {
     if (!entry.file_path) {
-      toast({ title: '파일 없음', description: '저장된 원본 파일이 없어 다시 분할할 수 없습니다.', variant: 'destructive' });
+      toast({ title: '파일 없음', description: '저장된 데이터가 없어 불러올 수 없습니다.', variant: 'destructive' });
       return;
     }
+
+    // Cached (zip) mode: restore chunks + analysis without re-splitting
+    if (entry.is_zip && entry.analysis) {
+      toast({ title: '캐시에서 복원 중...', description: entry.filename });
+      const { data, error } = await supabase.storage.from('split-files').download(entry.file_path);
+      if (error || !data) {
+        toast({ title: '다운로드 실패', description: error?.message || '알 수 없는 오류', variant: 'destructive' });
+        return;
+      }
+      try {
+        const zip = await JSZip.loadAsync(data);
+        const cachedByName = new Map(entry.analysis.map(c => [c.name, c]));
+        const restored: ChunkInfo[] = [];
+        // preserve original chunk order
+        for (const cached of entry.analysis) {
+          const zEntry = zip.file(cached.name);
+          if (!zEntry) continue;
+          const blob = await zEntry.async('blob');
+          restored.push({ name: cached.name, size: cached.size ?? blob.size, blob, analysis: cached.analysis });
+        }
+        zipRef.current = zip;
+        const virtualFile = new File([data], entry.filename, { type: 'application/zip' });
+        setFile(virtualFile);
+        setChunkSizeMB(entry.chunk_size_mb);
+        setChunks(restored);
+        setProgress(100);
+        setPreview('');
+        setSelectedChunk(null);
+        toast({ title: '복원 완료', description: `${restored.length}개 청크와 분석 결과를 불러왔습니다.` });
+      } catch (e) {
+        toast({ title: '복원 실패', description: e instanceof Error ? e.message : '알 수 없는 오류', variant: 'destructive' });
+      }
+      return;
+    }
+
+    // Legacy mode: entry stores original file, re-split
     toast({ title: '원본 불러오는 중...', description: entry.filename });
     const { data, error } = await supabase.storage.from('split-files').download(entry.file_path);
     if (error || !data) {
@@ -196,33 +245,34 @@ const FileSplitter = () => {
     if (f) handleFile(f);
   }, [handleFile]);
 
-  const detectAnomalies = useCallback(async (list: ChunkInfo[]) => {
-    for (let i = 0; i < list.length; i++) {
-      const chunk = list[i];
+  // Analyze all chunks and return the final list with analysis populated
+  const detectAnomalies = useCallback(async (list: ChunkInfo[]): Promise<ChunkInfo[]> => {
+    const results: ChunkInfo[] = [...list];
+    for (let i = 0; i < results.length; i++) {
+      const chunk = results[i];
       setChunks(prev => prev.map((c, idx) => idx === i ? { ...c, analysis: { ...c.analysis, status: 'analyzing' } } : c));
       try {
         const text = await chunk.blob.text();
         const { data, error } = await supabase.functions.invoke('analyze-chunk', { body: { text } });
         if (error || data?.error) throw new Error(error?.message || data?.error || 'analyze-chunk failed');
-        setChunks(prev => prev.map((c, idx) => idx === i ? {
-          ...c,
-          analysis: {
-            status: 'done',
-            firstTime: data.firstTime,
-            lastTime: data.lastTime,
-            errorCount: data.errorCount,
-            warnCount: data.warnCount,
-            anomalies: data.anomalies,
-            spikes: data.spikes,
-          },
-        } : c));
+        const analysis: ChunkAnalysis = {
+          status: 'done',
+          firstTime: data.firstTime,
+          lastTime: data.lastTime,
+          errorCount: data.errorCount,
+          warnCount: data.warnCount,
+          anomalies: data.anomalies,
+          spikes: data.spikes,
+        };
+        results[i] = { ...chunk, analysis };
+        setChunks(prev => prev.map((c, idx) => idx === i ? results[i] : c));
       } catch (e) {
-        setChunks(prev => prev.map((c, idx) => idx === i ? {
-          ...c,
-          analysis: { status: 'error', error: e instanceof Error ? e.message : 'unknown' },
-        } : c));
+        const analysis: ChunkAnalysis = { status: 'error', error: e instanceof Error ? e.message : 'unknown' };
+        results[i] = { ...chunk, analysis };
+        setChunks(prev => prev.map((c, idx) => idx === i ? results[i] : c));
       }
     }
+    return results;
   }, []);
 
 
@@ -258,28 +308,33 @@ const FileSplitter = () => {
       setChunks(resultChunks);
       toast({ title: '분할 완료', description: `${resultChunks.length}개 파일로 분할되었습니다. 이상탐지를 시작합니다.` });
 
-      void detectAnomalies(resultChunks);
-
       const currentUser = await resolveUser();
       if (!currentUser) {
-        toast({
-          title: '이력 저장 실패',
-          description: '로그인 정보를 확인한 뒤 다시 시도해주세요.',
-          variant: 'destructive',
-        });
+        toast({ title: '이력 저장 실패', description: '로그인 정보를 확인한 뒤 다시 시도해주세요.', variant: 'destructive' });
+        // still run detection locally
+        void detectAnomalies(resultChunks);
         return;
       }
 
-      let filePath = '';
-      const storagePath = `${currentUser.id}/${Date.now()}_${targetFile.name}`;
-      const { error: uploadErr } = await supabase.storage.from('split-files').upload(storagePath, targetFile);
-      if (uploadErr) {
-        console.error('Storage upload failed:', uploadErr);
-      } else {
-        filePath = storagePath;
-      }
+      // Run detection, then cache zip + analysis
+      const analyzed = await detectAnomalies(resultChunks);
 
-      await saveHistory(targetFile.name, targetFile.size, chunkMb, resultChunks.length, filePath, currentUser.id);
+      try {
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        const storagePath = `${currentUser.id}/${Date.now()}_${baseName}_chunks.zip`;
+        const { error: uploadErr } = await supabase.storage.from('split-files').upload(storagePath, zipBlob, {
+          contentType: 'application/zip',
+        });
+        if (uploadErr) {
+          console.error('Chunk zip upload failed:', uploadErr);
+          await saveHistory(targetFile.name, targetFile.size, chunkMb, resultChunks.length, '', currentUser.id, false, null);
+          return;
+        }
+        const cached: CachedChunk[] = analyzed.map(c => ({ name: c.name, size: c.size, analysis: c.analysis }));
+        await saveHistory(targetFile.name, targetFile.size, chunkMb, resultChunks.length, storagePath, currentUser.id, true, cached);
+      } catch (e) {
+        console.error('Cache save failed:', e);
+      }
     } catch (error) {
       console.error('Split failed:', error);
       toast({
@@ -293,6 +348,7 @@ const FileSplitter = () => {
   }, [authLoading, detectAnomalies, resolveUser, saveHistory]);
 
   splitFileRef.current = splitFile;
+
 
   const handleSplit = useCallback(() => {
     if (file) void splitFile(file, chunkSizeMB);
@@ -606,9 +662,13 @@ const FileSplitter = () => {
                               <span>{date.toLocaleDateString('ko-KR')} {date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
                               <span>•</span>
                               <span>{(entry.original_size / (1024 * 1024)).toFixed(1)}MB → {entry.chunk_size_mb}MB × {entry.chunk_count}개</span>
+                              {entry.is_zip && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30">캐시됨</span>
+                              )}
                             </div>
                           </div>
                           <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+
                             {entry.file_path && (
                               <Button
                                 variant="ghost"
@@ -620,19 +680,23 @@ const FileSplitter = () => {
                                     toast({ title: '다운로드 실패', description: error?.message || '알 수 없는 오류', variant: 'destructive' });
                                     return;
                                   }
+                                  const dlName = entry.is_zip
+                                    ? `${entry.filename.replace(/\.[^.]+$/, '')}_split.zip`
+                                    : entry.filename;
                                   const url = URL.createObjectURL(data);
                                   const a = document.createElement('a');
                                   a.href = url;
-                                  a.download = entry.filename;
+                                  a.download = dlName;
                                   a.click();
                                   URL.revokeObjectURL(url);
                                   toast({ title: '다운로드 완료' });
                                 }}
-                                title="원본 파일 다운로드"
+                                title={entry.is_zip ? '분할 ZIP 다운로드' : '원본 파일 다운로드'}
                               >
                                 <Download className="w-3 h-3" />
                               </Button>
                             )}
+
                             <Button
                               variant="ghost"
                               size="sm"
