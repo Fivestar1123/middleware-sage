@@ -377,9 +377,10 @@ const FileSplitter = () => {
     if (!file) return;
     let blob: Blob | null = cachedZipBlobRef.current;
     if (!blob) {
-      if (!zipRef.current) return;
+      if (!pendingEntriesRef.current) return;
       toast({ title: 'ZIP 생성 중...', description: '잠시만 기다려주세요.' });
-      blob = await zipRef.current.generateAsync({ type: 'blob' });
+      blob = await generateZipInWorker(pendingEntriesRef.current);
+      cachedZipBlobRef.current = blob;
     }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
