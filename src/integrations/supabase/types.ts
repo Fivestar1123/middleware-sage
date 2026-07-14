@@ -73,32 +73,38 @@ export type Database = {
       }
       split_history: {
         Row: {
+          analysis: Json | null
           chunk_count: number
           chunk_size_mb: number
           created_at: string
           file_path: string | null
           filename: string
           id: string
+          is_zip: boolean
           original_size: number
           user_id: string
         }
         Insert: {
+          analysis?: Json | null
           chunk_count: number
           chunk_size_mb: number
           created_at?: string
           file_path?: string | null
           filename: string
           id?: string
+          is_zip?: boolean
           original_size: number
           user_id: string
         }
         Update: {
+          analysis?: Json | null
           chunk_count?: number
           chunk_size_mb?: number
           created_at?: string
           file_path?: string | null
           filename?: string
           id?: string
+          is_zip?: boolean
           original_size?: number
           user_id?: string
         }
