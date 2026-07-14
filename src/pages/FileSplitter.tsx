@@ -187,6 +187,28 @@ const FileSplitter = () => {
 
     // Cached (zip) mode: restore chunks + analysis without re-splitting
     if (entry.is_zip && entry.analysis) {
+      const names = entry.analysis.map(c => c.name);
+      const cachedByName = new Map(entry.analysis.map(c => [c.name, c]));
+
+      // Fast path: chunks already in IndexedDB — skip network + zip extraction.
+      const idbHit = await hasEntryChunks(entry.id, names.length).catch(() => false);
+      if (idbHit) {
+        const restored: ChunkInfo[] = entry.analysis.map(c => ({
+          name: c.name,
+          size: c.size,
+          entryId: entry.id,
+          analysis: c.analysis,
+        }));
+        setFile(new File([], entry.filename, { type: 'application/zip' }));
+        setChunkSizeMB(entry.chunk_size_mb);
+        setChunks(restored);
+        setProgress(100);
+        setPreview('');
+        setSelectedChunk(null);
+        toast({ title: '로컬 캐시에서 복원', description: `${restored.length}개 청크를 즉시 불러왔습니다.` });
+        return;
+      }
+
       toast({ title: '캐시에서 복원 중...', description: entry.filename });
       const { data, error } = await supabase.storage.from('split-files').download(entry.file_path);
       if (error || !data) {
@@ -194,28 +216,28 @@ const FileSplitter = () => {
         return;
       }
       try {
-        // Cache the downloaded zip blob for later re-download without regenerating.
         cachedZipBlobRef.current = data;
-        const cachedByName = new Map(entry.analysis.map(c => [c.name, c]));
-        const names = entry.analysis.map(c => c.name);
         const restored: ChunkInfo[] = [];
         let processed = 0;
-        // Stream chunks from the worker; each blob is added immediately and the
-        // worker drops its JSZip reference after posting, so memory stays bounded.
-        await extractZipStream(data, names, (name, blob) => {
+        // Stream chunks from the worker → persist to IDB → keep only refs in state.
+        await extractZipStream(data, names, async (name, blob) => {
           if (!blob) return;
           const cached = cachedByName.get(name);
+          try {
+            await putChunkBlob(entry.id, name, blob);
+          } catch (e) {
+            console.warn('IDB put failed, keeping in-memory blob', e);
+          }
           restored.push({
             name,
             size: cached?.size ?? blob.size,
-            blob,
+            entryId: entry.id,
             analysis: cached?.analysis ?? { status: 'pending' },
           });
           processed++;
           setProgress(Math.round((processed / names.length) * 100));
         });
         cachedByName.clear();
-        // Lightweight placeholder file (no bytes) to avoid duplicating the zip in memory.
         const virtualFile = new File([], entry.filename, { type: 'application/zip' });
         setFile(virtualFile);
         setChunkSizeMB(entry.chunk_size_mb);
@@ -223,7 +245,7 @@ const FileSplitter = () => {
         setProgress(100);
         setPreview('');
         setSelectedChunk(null);
-        toast({ title: '복원 완료', description: `${restored.length}개 청크와 분석 결과를 불러왔습니다.` });
+        toast({ title: '복원 완료', description: `${restored.length}개 청크를 로컬 캐시에 저장했습니다.` });
       } catch (e) {
         toast({ title: '복원 실패', description: e instanceof Error ? e.message : '알 수 없는 오류', variant: 'destructive' });
       }
