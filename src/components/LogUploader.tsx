@@ -155,11 +155,23 @@ const LogUploader = ({ onLogLoaded, onMultiLogLoaded, onDemoLoad, isAnalyzing }:
     }
   }, [handleFiles]);
 
-  if (isAnalyzing || isOcrProcessing) {
+  if (isAnalyzing || isOcrProcessing || uploadProgress > 0) {
     return (
-      <div className="flex items-center gap-2 text-xs text-primary">
-        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-        <span>{isOcrProcessing ? '이미지에서 로그 추출 중...' : 'AI 분석 중...'}</span>
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 text-xs text-primary">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          <span>
+            {isOcrProcessing
+              ? progressText || '이미지에서 로그 추출 중...'
+              : uploadProgress > 0
+                ? progressText || '파일 읽는 중...'
+                : 'AI 분석 중...'}
+          </span>
+        </div>
+        {(isOcrProcessing || uploadProgress > 0) && (
+          <Progress value={uploadProgress} className="h-1.5" />
+        )}
+        <p className="text-[10px] text-muted-foreground text-right">{uploadProgress}%</p>
       </div>
     );
   }
