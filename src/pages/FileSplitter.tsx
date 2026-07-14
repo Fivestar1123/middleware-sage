@@ -69,8 +69,8 @@ const FileSplitter = () => {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [splitHistory, setSplitHistory] = useState<SplitHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
-  const zipRef = useRef<JSZip | null>(null);
   const cachedZipBlobRef = useRef<Blob | null>(null);
+  const pendingEntriesRef = useRef<{ name: string; blob: Blob }[] | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const resolveUser = useCallback(async () => {
