@@ -386,7 +386,7 @@ const FileSplitter = () => {
                   각 파일이 약 {chunkSizeMB}MB씩 분할됩니다 · 예상 {estimatedChunks}개 파일
                 </p>
                 <p className="text-xs text-warning">
-                  ⚠️ 테스트 기간: 분할 크기는 최대 <strong>10MB</strong>로 제한됩니다 (분석 업로드 한도와 동일)
+                  ⚠️ 분할 크기는 최대 <strong>10MB</strong>로 제한됩니다 (분석 업로드 한도와 동일)
                 </p>
               </CardContent>
             </Card>
