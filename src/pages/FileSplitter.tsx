@@ -300,23 +300,23 @@ const FileSplitter = () => {
     try {
       const chunkSize = chunkMb * 1024 * 1024;
       const totalChunks = Math.ceil(targetFile.size / chunkSize);
-      const zip = new JSZip();
       const baseName = targetFile.name.replace(/\.[^.]+$/, '');
       const ext = targetFile.name.includes('.') ? targetFile.name.slice(targetFile.name.lastIndexOf('.')) : '.txt';
       const resultChunks: ChunkInfo[] = [];
+      const entries: { name: string; blob: Blob }[] = [];
 
       for (let i = 0; i < totalChunks; i++) {
         const start = i * chunkSize;
         const end = Math.min(start + chunkSize, targetFile.size);
         const blob = targetFile.slice(start, end);
         const name = `${baseName}_part${String(i + 1).padStart(3, '0')}${ext}`;
-        zip.file(name, blob);
+        entries.push({ name, blob });
         resultChunks.push({ name, size: end - start, blob, analysis: { status: 'pending' } });
         setProgress(Math.round(((i + 1) / totalChunks) * 100));
         if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
       }
 
-      zipRef.current = zip;
+      pendingEntriesRef.current = entries;
       setChunks(resultChunks);
       toast({ title: '분할 완료', description: `${resultChunks.length}개 파일로 분할되었습니다. 이상탐지를 시작합니다.` });
 
@@ -332,7 +332,12 @@ const FileSplitter = () => {
       const analyzed = await detectAnomalies(resultChunks);
 
       try {
-        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        // Build the zip in the worker to keep the main thread responsive and
+        // avoid duplicating large decompressed buffers here.
+        const zipBlob = await generateZipInWorker(entries);
+        // Free the entries reference right away — worker owns its own copy.
+        pendingEntriesRef.current = null;
+        cachedZipBlobRef.current = zipBlob;
         const storagePath = `${currentUser.id}/${Date.now()}_${baseName}_chunks.zip`;
         const { error: uploadErr } = await supabase.storage.from('split-files').upload(storagePath, zipBlob, {
           contentType: 'application/zip',
@@ -346,6 +351,8 @@ const FileSplitter = () => {
         await saveHistory(targetFile.name, targetFile.size, chunkMb, resultChunks.length, storagePath, currentUser.id, true, cached);
       } catch (e) {
         console.error('Cache save failed:', e);
+      } finally {
+        pendingEntriesRef.current = null;
       }
     } catch (error) {
       console.error('Split failed:', error);
