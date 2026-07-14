@@ -164,6 +164,8 @@ const FileSplitter = () => {
       await supabase.storage.from('split-files').remove([entry.file_path]);
     }
     await supabase.from('split_history').delete().eq('id', entry.id);
+    // Drop any cached chunk blobs for this entry from IndexedDB.
+    try { await deleteEntryChunks(entry.id); } catch (e) { console.warn('IDB purge failed', e); }
     setSplitHistory(prev => prev.filter(h => h.id !== entry.id));
     toast({ title: '삭제 완료' });
   }, [user]);
