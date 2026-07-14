@@ -12,6 +12,7 @@ import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { extractZipStream, generateZipInWorker, terminateZipWorker } from '@/lib/zipWorkerClient';
+import { putChunkBlob, getChunkBlob, deleteEntryChunks, hasEntryChunks } from '@/lib/chunkStore';
 
 interface SplitHistoryEntry {
   id: string;
@@ -51,7 +52,8 @@ interface ChunkAnalysis {
 interface ChunkInfo {
   name: string;
   size: number;
-  blob: Blob;
+  blob?: Blob;         // in-memory blob (fresh split: File slice, zero-copy)
+  entryId?: string;    // present when persisted to IndexedDB
   analysis: ChunkAnalysis;
 }
 
@@ -162,11 +164,20 @@ const FileSplitter = () => {
       await supabase.storage.from('split-files').remove([entry.file_path]);
     }
     await supabase.from('split_history').delete().eq('id', entry.id);
+    // Drop any cached chunk blobs for this entry from IndexedDB.
+    try { await deleteEntryChunks(entry.id); } catch (e) { console.warn('IDB purge failed', e); }
     setSplitHistory(prev => prev.filter(h => h.id !== entry.id));
     toast({ title: '삭제 완료' });
   }, [user]);
 
   const splitFileRef = useRef<((f: File, mb: number) => void) | null>(null);
+
+  // Resolve a chunk's blob: prefer in-memory, otherwise lazy-load from IndexedDB.
+  const resolveChunkBlob = useCallback(async (chunk: ChunkInfo): Promise<Blob | null> => {
+    if (chunk.blob) return chunk.blob;
+    if (chunk.entryId) return await getChunkBlob(chunk.entryId, chunk.name);
+    return null;
+  }, []);
 
   const handleResplit = useCallback(async (entry: SplitHistoryEntry) => {
     if (!entry.file_path) {
@@ -176,6 +187,28 @@ const FileSplitter = () => {
 
     // Cached (zip) mode: restore chunks + analysis without re-splitting
     if (entry.is_zip && entry.analysis) {
+      const names = entry.analysis.map(c => c.name);
+      const cachedByName = new Map(entry.analysis.map(c => [c.name, c]));
+
+      // Fast path: chunks already in IndexedDB — skip network + zip extraction.
+      const idbHit = await hasEntryChunks(entry.id, names.length).catch(() => false);
+      if (idbHit) {
+        const restored: ChunkInfo[] = entry.analysis.map(c => ({
+          name: c.name,
+          size: c.size,
+          entryId: entry.id,
+          analysis: c.analysis,
+        }));
+        setFile(new File([], entry.filename, { type: 'application/zip' }));
+        setChunkSizeMB(entry.chunk_size_mb);
+        setChunks(restored);
+        setProgress(100);
+        setPreview('');
+        setSelectedChunk(null);
+        toast({ title: '로컬 캐시에서 복원', description: `${restored.length}개 청크를 즉시 불러왔습니다.` });
+        return;
+      }
+
       toast({ title: '캐시에서 복원 중...', description: entry.filename });
       const { data, error } = await supabase.storage.from('split-files').download(entry.file_path);
       if (error || !data) {
@@ -183,28 +216,28 @@ const FileSplitter = () => {
         return;
       }
       try {
-        // Cache the downloaded zip blob for later re-download without regenerating.
         cachedZipBlobRef.current = data;
-        const cachedByName = new Map(entry.analysis.map(c => [c.name, c]));
-        const names = entry.analysis.map(c => c.name);
         const restored: ChunkInfo[] = [];
         let processed = 0;
-        // Stream chunks from the worker; each blob is added immediately and the
-        // worker drops its JSZip reference after posting, so memory stays bounded.
-        await extractZipStream(data, names, (name, blob) => {
+        // Stream chunks from the worker → persist to IDB → keep only refs in state.
+        await extractZipStream(data, names, async (name, blob) => {
           if (!blob) return;
           const cached = cachedByName.get(name);
+          try {
+            await putChunkBlob(entry.id, name, blob);
+          } catch (e) {
+            console.warn('IDB put failed, keeping in-memory blob', e);
+          }
           restored.push({
             name,
             size: cached?.size ?? blob.size,
-            blob,
+            entryId: entry.id,
             analysis: cached?.analysis ?? { status: 'pending' },
           });
           processed++;
           setProgress(Math.round((processed / names.length) * 100));
         });
         cachedByName.clear();
-        // Lightweight placeholder file (no bytes) to avoid duplicating the zip in memory.
         const virtualFile = new File([], entry.filename, { type: 'application/zip' });
         setFile(virtualFile);
         setChunkSizeMB(entry.chunk_size_mb);
@@ -212,7 +245,7 @@ const FileSplitter = () => {
         setProgress(100);
         setPreview('');
         setSelectedChunk(null);
-        toast({ title: '복원 완료', description: `${restored.length}개 청크와 분석 결과를 불러왔습니다.` });
+        toast({ title: '복원 완료', description: `${restored.length}개 청크를 로컬 캐시에 저장했습니다.` });
       } catch (e) {
         toast({ title: '복원 실패', description: e instanceof Error ? e.message : '알 수 없는 오류', variant: 'destructive' });
       }
@@ -273,7 +306,9 @@ const FileSplitter = () => {
       const chunk = results[i];
       setChunks(prev => prev.map((c, idx) => idx === i ? { ...c, analysis: { ...c.analysis, status: 'analyzing' } } : c));
       try {
-        const text = await chunk.blob.text();
+        const blob = await resolveChunkBlob(chunk);
+        if (!blob) throw new Error('청크 데이터를 찾을 수 없습니다.');
+        const text = await blob.text();
         const { data, error } = await supabase.functions.invoke('analyze-chunk', { body: { text } });
         if (error || data?.error) throw new Error(error?.message || data?.error || 'analyze-chunk failed');
         const analysis: ChunkAnalysis = {
@@ -404,29 +439,42 @@ const FileSplitter = () => {
     const chunk = chunks[index];
     if (!chunk) return;
     setSelectedChunk(index);
-    const text = await chunk.blob.text();
-    const lines = text.split('\n').slice(0, 50);
+    const blob = await resolveChunkBlob(chunk);
+    if (!blob) {
+      toast({ title: '청크 로드 실패', description: '데이터를 찾을 수 없습니다.', variant: 'destructive' });
+      return;
+    }
+    // Read only the head via blob.slice so a large chunk isn't fully materialized.
+    const headText = await blob.slice(0, 64 * 1024).text();
+    const lines = headText.split('\n').slice(0, 50);
     setChunkPreview(lines.join('\n'));
     setIsPreviewOpen(true);
-  }, [chunks]);
+  }, [chunks, resolveChunkBlob]);
 
-  const handleChunkDownload = useCallback((index: number) => {
+  const handleChunkDownload = useCallback(async (index: number) => {
     const chunk = chunks[index];
     if (!chunk) return;
-    const url = URL.createObjectURL(chunk.blob);
+    const blob = await resolveChunkBlob(chunk);
+    if (!blob) {
+      toast({ title: '다운로드 실패', description: '데이터를 찾을 수 없습니다.', variant: 'destructive' });
+      return;
+    }
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = chunk.name;
     a.click();
     URL.revokeObjectURL(url);
     toast({ title: '다운로드 완료', description: `${chunk.name} 파일이 다운로드되었습니다.` });
-  }, [chunks]);
+  }, [chunks, resolveChunkBlob]);
 
   const handleChunkAnalyze = useCallback(async (index: number) => {
     const chunk = chunks[index];
     if (!chunk) return;
     try {
-      const text = await chunk.blob.text();
+      const blob = await resolveChunkBlob(chunk);
+      if (!blob) throw new Error('청크 데이터를 찾을 수 없습니다.');
+      const text = await blob.text();
       const { setPendingSplitterChunk } = await import('@/lib/splitterTransfer');
       setPendingSplitterChunk(text, chunk.name);
       navigate('/');
