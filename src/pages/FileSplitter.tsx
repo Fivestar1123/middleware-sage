@@ -22,10 +22,29 @@ interface SplitHistoryEntry {
   file_path: string | null;
   created_at: string;
 }
+interface ChunkAnomaly {
+  severity: 'critical' | 'high' | 'medium';
+  lineNumber: number;
+  timestamp: string | null;
+  message: string;
+  reason: string;
+  tier: 1 | 2;
+}
+interface ChunkAnalysis {
+  status: 'pending' | 'analyzing' | 'done' | 'error';
+  firstTime?: string | null;
+  lastTime?: string | null;
+  errorCount?: number;
+  warnCount?: number;
+  anomalies?: ChunkAnomaly[];
+  spikes?: { bucket: string; count: number; avg: number }[];
+  error?: string;
+}
 interface ChunkInfo {
   name: string;
   size: number;
   blob: Blob;
+  analysis: ChunkAnalysis;
 }
 
 const FileSplitter = () => {
