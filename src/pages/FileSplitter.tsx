@@ -143,12 +143,14 @@ const FileSplitter = () => {
     toast({ title: '삭제 완료' });
   }, [user]);
 
+  const splitFileRef = useRef<((f: File, mb: number) => void) | null>(null);
+
   const handleResplit = useCallback(async (entry: SplitHistoryEntry) => {
     if (!entry.file_path) {
-      toast({ title: '파일 없음', description: '저장된 원본 파일이 없습니다.', variant: 'destructive' });
+      toast({ title: '파일 없음', description: '저장된 원본 파일이 없어 다시 분할할 수 없습니다.', variant: 'destructive' });
       return;
     }
-    toast({ title: '파일 다운로드 중...', description: '원본 파일을 불러오고 있습니다.' });
+    toast({ title: '원본 불러오는 중...', description: entry.filename });
     const { data, error } = await supabase.storage.from('split-files').download(entry.file_path);
     if (error || !data) {
       toast({ title: '다운로드 실패', description: error?.message || '알 수 없는 오류', variant: 'destructive' });
@@ -165,7 +167,9 @@ const FileSplitter = () => {
     const text = await slice.text();
     const lines = text.split('\n').slice(0, 100);
     setPreview(lines.join('\n'));
+    splitFileRef.current?.(f, entry.chunk_size_mb);
   }, []);
+
 
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
@@ -223,8 +227,8 @@ const FileSplitter = () => {
 
 
 
-  const handleSplit = useCallback(async () => {
-    if (!file || authLoading) return;
+  const splitFile = useCallback(async (targetFile: File, chunkMb: number) => {
+    if (!targetFile || authLoading) return;
 
     setIsSplitting(true);
     setProgress(0);
@@ -232,17 +236,17 @@ const FileSplitter = () => {
     setSelectedChunk(null);
 
     try {
-      const chunkSize = chunkSizeMB * 1024 * 1024;
-      const totalChunks = Math.ceil(file.size / chunkSize);
+      const chunkSize = chunkMb * 1024 * 1024;
+      const totalChunks = Math.ceil(targetFile.size / chunkSize);
       const zip = new JSZip();
-      const baseName = file.name.replace(/\.[^.]+$/, '');
-      const ext = file.name.includes('.') ? file.name.slice(file.name.lastIndexOf('.')) : '.txt';
+      const baseName = targetFile.name.replace(/\.[^.]+$/, '');
+      const ext = targetFile.name.includes('.') ? targetFile.name.slice(targetFile.name.lastIndexOf('.')) : '.txt';
       const resultChunks: ChunkInfo[] = [];
 
       for (let i = 0; i < totalChunks; i++) {
         const start = i * chunkSize;
-        const end = Math.min(start + chunkSize, file.size);
-        const blob = file.slice(start, end);
+        const end = Math.min(start + chunkSize, targetFile.size);
+        const blob = targetFile.slice(start, end);
         const name = `${baseName}_part${String(i + 1).padStart(3, '0')}${ext}`;
         zip.file(name, blob);
         resultChunks.push({ name, size: end - start, blob, analysis: { status: 'pending' } });
@@ -254,9 +258,7 @@ const FileSplitter = () => {
       setChunks(resultChunks);
       toast({ title: '분할 완료', description: `${resultChunks.length}개 파일로 분할되었습니다. 이상탐지를 시작합니다.` });
 
-      // Kick off anomaly detection for each chunk (sequential)
       void detectAnomalies(resultChunks);
-
 
       const currentUser = await resolveUser();
       if (!currentUser) {
@@ -269,15 +271,15 @@ const FileSplitter = () => {
       }
 
       let filePath = '';
-      const storagePath = `${currentUser.id}/${Date.now()}_${file.name}`;
-      const { error: uploadErr } = await supabase.storage.from('split-files').upload(storagePath, file);
+      const storagePath = `${currentUser.id}/${Date.now()}_${targetFile.name}`;
+      const { error: uploadErr } = await supabase.storage.from('split-files').upload(storagePath, targetFile);
       if (uploadErr) {
         console.error('Storage upload failed:', uploadErr);
       } else {
         filePath = storagePath;
       }
 
-      await saveHistory(file.name, file.size, chunkSizeMB, resultChunks.length, filePath, currentUser.id);
+      await saveHistory(targetFile.name, targetFile.size, chunkMb, resultChunks.length, filePath, currentUser.id);
     } catch (error) {
       console.error('Split failed:', error);
       toast({
@@ -288,7 +290,13 @@ const FileSplitter = () => {
     } finally {
       setIsSplitting(false);
     }
-  }, [authLoading, chunkSizeMB, file, resolveUser, saveHistory]);
+  }, [authLoading, detectAnomalies, resolveUser, saveHistory]);
+
+  splitFileRef.current = splitFile;
+
+  const handleSplit = useCallback(() => {
+    if (file) void splitFile(file, chunkSizeMB);
+  }, [file, chunkSizeMB, splitFile]);
 
   const handleDownloadAll = useCallback(async () => {
     if (!zipRef.current || !file) return;
@@ -585,7 +593,12 @@ const FileSplitter = () => {
                     {splitHistory.map((entry) => {
                       const date = new Date(entry.created_at);
                       return (
-                        <div key={entry.id} className="flex items-center justify-between py-2 group">
+                        <div
+                          key={entry.id}
+                          className={`flex items-center justify-between py-2 group -mx-2 px-2 rounded transition-colors ${entry.file_path ? 'cursor-pointer hover:bg-accent/50' : ''}`}
+                          onClick={() => entry.file_path && handleResplit(entry)}
+                          title={entry.file_path ? '클릭하여 다시 불러오기' : ''}
+                        >
                           <div className="min-w-0 flex-1">
                             <p className="text-xs font-medium text-foreground truncate">{entry.filename}</p>
                             <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
@@ -595,41 +608,30 @@ const FileSplitter = () => {
                               <span>{(entry.original_size / (1024 * 1024)).toFixed(1)}MB → {entry.chunk_size_mb}MB × {entry.chunk_count}개</span>
                             </div>
                           </div>
-                          <div className="flex items-center gap-1 flex-shrink-0">
+                          <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                             {entry.file_path && (
-                              <>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 px-2"
-                                  onClick={() => handleResplit(entry)}
-                                  title="다시 분할하기"
-                                >
-                                  <Scissors className="w-3 h-3" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 px-2"
-                                  onClick={async () => {
-                                    const { data, error } = await supabase.storage.from('split-files').download(entry.file_path!);
-                                    if (error || !data) {
-                                      toast({ title: '다운로드 실패', description: error?.message || '알 수 없는 오류', variant: 'destructive' });
-                                      return;
-                                    }
-                                    const url = URL.createObjectURL(data);
-                                    const a = document.createElement('a');
-                                    a.href = url;
-                                    a.download = entry.filename;
-                                    a.click();
-                                    URL.revokeObjectURL(url);
-                                    toast({ title: '다운로드 완료' });
-                                  }}
-                                  title="원본 파일 다운로드"
-                                >
-                                  <Download className="w-3 h-3" />
-                                </Button>
-                              </>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2"
+                                onClick={async () => {
+                                  const { data, error } = await supabase.storage.from('split-files').download(entry.file_path!);
+                                  if (error || !data) {
+                                    toast({ title: '다운로드 실패', description: error?.message || '알 수 없는 오류', variant: 'destructive' });
+                                    return;
+                                  }
+                                  const url = URL.createObjectURL(data);
+                                  const a = document.createElement('a');
+                                  a.href = url;
+                                  a.download = entry.filename;
+                                  a.click();
+                                  URL.revokeObjectURL(url);
+                                  toast({ title: '다운로드 완료' });
+                                }}
+                                title="원본 파일 다운로드"
+                              >
+                                <Download className="w-3 h-3" />
+                              </Button>
                             )}
                             <Button
                               variant="ghost"
