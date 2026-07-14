@@ -20,8 +20,16 @@ interface SplitHistoryEntry {
   chunk_size_mb: number;
   chunk_count: number;
   file_path: string | null;
+  is_zip?: boolean;
+  analysis?: CachedChunk[] | null;
   created_at: string;
 }
+interface CachedChunk {
+  name: string;
+  size: number;
+  analysis: ChunkAnalysis;
+}
+
 interface ChunkAnomaly {
   severity: 'critical' | 'high' | 'medium';
   lineNumber: number;
