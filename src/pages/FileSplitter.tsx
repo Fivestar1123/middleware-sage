@@ -173,18 +173,21 @@ const FileSplitter = () => {
         return;
       }
       try {
+        // Cache the downloaded zip blob for later re-download without regenerating.
+        cachedZipBlobRef.current = data;
         const zip = await JSZip.loadAsync(data);
-        const cachedByName = new Map(entry.analysis.map(c => [c.name, c]));
         const restored: ChunkInfo[] = [];
-        // preserve original chunk order
+        // Extract chunks one-by-one and drop them from JSZip to free memory.
         for (const cached of entry.analysis) {
           const zEntry = zip.file(cached.name);
           if (!zEntry) continue;
           const blob = await zEntry.async('blob');
           restored.push({ name: cached.name, size: cached.size ?? blob.size, blob, analysis: cached.analysis });
+          zip.remove(cached.name);
         }
-        zipRef.current = zip;
-        const virtualFile = new File([data], entry.filename, { type: 'application/zip' });
+        zipRef.current = null;
+        // Lightweight placeholder file (no bytes) to avoid duplicating the zip in memory.
+        const virtualFile = new File([], entry.filename, { type: 'application/zip' });
         setFile(virtualFile);
         setChunkSizeMB(entry.chunk_size_mb);
         setChunks(restored);
