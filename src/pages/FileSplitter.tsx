@@ -535,7 +535,9 @@ const FileSplitter = () => {
                               onClick={() => handleChunkAnalyze(i)}
                             >
                               <Play className="w-3 h-3" />
+                            </Button>
                           </div>
+
                         </div>
                         {a.status === 'done' && (a.firstTime || a.lastTime) && (
                           <div className="flex items-center gap-2 pl-5 text-[10px] text-muted-foreground font-mono">
