@@ -195,14 +195,14 @@ async function findSimilarCases(logText: string): Promise<string> {
 }
 
 async function callAI(apiKey: string, systemPrompt: string, userContent: string, tools: any[], toolName: string) {
-  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gemini-2.5-flash",
+      model: "google/gemini-2.5-flash",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userContent },
@@ -255,8 +255,8 @@ serve(async (req) => {
     const body = await req.json();
     const { stage } = body;
 
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-    if (!GEMINI_API_KEY) throw { status: 500, message: "GEMINI_API_KEY not configured" };
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) throw { status: 500, message: "LOVABLE_API_KEY not configured" };
 
     if (stage === 1) {
       const { summary, intervals } = body;
@@ -274,7 +274,7 @@ serve(async (req) => {
         ).join('\n\n')
       }`;
 
-      const result = await callAI(GEMINI_API_KEY, STAGE1_PROMPT, userContent, stage1Tools, "identify_suspect_intervals");
+      const result = await callAI(LOVABLE_API_KEY, STAGE1_PROMPT, userContent, stage1Tools, "identify_suspect_intervals");
       return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -293,7 +293,7 @@ serve(async (req) => {
 
       const userContent = `다음은 1차 분석에서 의심 구간으로 특정된 상세 로그(전후 100줄)야. 총 원본 라인 수: ${totalLines}\n\n${detailedLogs}${similarCases}`;
 
-      const result = await callAI(GEMINI_API_KEY, STAGE2_PROMPT, userContent, stage2Tools, "log_analysis_result");
+      const result = await callAI(LOVABLE_API_KEY, STAGE2_PROMPT, userContent, stage2Tools, "log_analysis_result");
       return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -322,7 +322,7 @@ ${(summaries || []).map((s: string, i: number) => `  [${(fileNames || [])[i] || 
 
 ${correlatedLogs}${similarCases}`;
 
-      const result = await callAI(GEMINI_API_KEY, STAGE3_PROMPT, userContent, stage2Tools, "log_analysis_result");
+      const result = await callAI(LOVABLE_API_KEY, STAGE3_PROMPT, userContent, stage2Tools, "log_analysis_result");
       return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
