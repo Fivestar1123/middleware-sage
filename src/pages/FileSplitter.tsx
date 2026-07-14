@@ -12,6 +12,7 @@ import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { extractZipStream, generateZipInWorker, terminateZipWorker } from '@/lib/zipWorkerClient';
+import { putChunkBlob, getChunkBlob, deleteEntryChunks, hasEntryChunks } from '@/lib/chunkStore';
 
 interface SplitHistoryEntry {
   id: string;
