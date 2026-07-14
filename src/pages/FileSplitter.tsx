@@ -145,10 +145,10 @@ const FileSplitter = () => {
 
   const handleResplit = useCallback(async (entry: SplitHistoryEntry) => {
     if (!entry.file_path) {
-      toast({ title: '파일 없음', description: '저장된 원본 파일이 없습니다.', variant: 'destructive' });
+      toast({ title: '파일 없음', description: '저장된 원본 파일이 없어 다시 분할할 수 없습니다.', variant: 'destructive' });
       return;
     }
-    toast({ title: '파일 다운로드 중...', description: '원본 파일을 불러오고 있습니다.' });
+    toast({ title: '원본 불러오는 중...', description: entry.filename });
     const { data, error } = await supabase.storage.from('split-files').download(entry.file_path);
     if (error || !data) {
       toast({ title: '다운로드 실패', description: error?.message || '알 수 없는 오류', variant: 'destructive' });
@@ -165,7 +165,10 @@ const FileSplitter = () => {
     const text = await slice.text();
     const lines = text.split('\n').slice(0, 100);
     setPreview(lines.join('\n'));
+    // 저장된 분할 설정으로 즉시 재분할 실행
+    void splitFile(f, entry.chunk_size_mb);
   }, []);
+
 
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
