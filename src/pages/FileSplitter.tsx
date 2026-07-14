@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Scissors, Upload, Download, FileText, Trash2, Eye, Play, Search, History, Clock, Loader2 } from 'lucide-react';
+import { Scissors, Upload, Download, FileText, Trash2, Eye, Play, Search, History, Clock, Loader2, AlertTriangle, ShieldAlert, ShieldCheck } from 'lucide-react';
 import JSZip from 'jszip';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
@@ -22,10 +22,29 @@ interface SplitHistoryEntry {
   file_path: string | null;
   created_at: string;
 }
+interface ChunkAnomaly {
+  severity: 'critical' | 'high' | 'medium';
+  lineNumber: number;
+  timestamp: string | null;
+  message: string;
+  reason: string;
+  tier: 1 | 2;
+}
+interface ChunkAnalysis {
+  status: 'pending' | 'analyzing' | 'done' | 'error';
+  firstTime?: string | null;
+  lastTime?: string | null;
+  errorCount?: number;
+  warnCount?: number;
+  anomalies?: ChunkAnomaly[];
+  spikes?: { bucket: string; count: number; avg: number }[];
+  error?: string;
+}
 interface ChunkInfo {
   name: string;
   size: number;
   blob: Blob;
+  analysis: ChunkAnalysis;
 }
 
 const FileSplitter = () => {
@@ -173,6 +192,37 @@ const FileSplitter = () => {
     if (f) handleFile(f);
   }, [handleFile]);
 
+  const detectAnomalies = useCallback(async (list: ChunkInfo[]) => {
+    for (let i = 0; i < list.length; i++) {
+      const chunk = list[i];
+      setChunks(prev => prev.map((c, idx) => idx === i ? { ...c, analysis: { ...c.analysis, status: 'analyzing' } } : c));
+      try {
+        const text = await chunk.blob.text();
+        const { data, error } = await supabase.functions.invoke('analyze-chunk', { body: { text } });
+        if (error || data?.error) throw new Error(error?.message || data?.error || 'analyze-chunk failed');
+        setChunks(prev => prev.map((c, idx) => idx === i ? {
+          ...c,
+          analysis: {
+            status: 'done',
+            firstTime: data.firstTime,
+            lastTime: data.lastTime,
+            errorCount: data.errorCount,
+            warnCount: data.warnCount,
+            anomalies: data.anomalies,
+            spikes: data.spikes,
+          },
+        } : c));
+      } catch (e) {
+        setChunks(prev => prev.map((c, idx) => idx === i ? {
+          ...c,
+          analysis: { status: 'error', error: e instanceof Error ? e.message : 'unknown' },
+        } : c));
+      }
+    }
+  }, []);
+
+
+
   const handleSplit = useCallback(async () => {
     if (!file || authLoading) return;
 
@@ -195,14 +245,18 @@ const FileSplitter = () => {
         const blob = file.slice(start, end);
         const name = `${baseName}_part${String(i + 1).padStart(3, '0')}${ext}`;
         zip.file(name, blob);
-        resultChunks.push({ name, size: end - start, blob });
+        resultChunks.push({ name, size: end - start, blob, analysis: { status: 'pending' } });
         setProgress(Math.round(((i + 1) / totalChunks) * 100));
         if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
       }
 
       zipRef.current = zip;
       setChunks(resultChunks);
-      toast({ title: '분할 완료', description: `${resultChunks.length}개 파일로 분할되었습니다.` });
+      toast({ title: '분할 완료', description: `${resultChunks.length}개 파일로 분할되었습니다. 이상탐지를 시작합니다.` });
+
+      // Kick off anomaly detection for each chunk (sequential)
+      void detectAnomalies(resultChunks);
+
 
       const currentUser = await resolveUser();
       if (!currentUser) {
@@ -412,17 +466,49 @@ const FileSplitter = () => {
                 <CardContent className="px-4 pb-3">
                   <ScrollArea className="h-64">
                     <div className="space-y-1">
-                      {chunks.map((c, i) => (
+                      {chunks.map((c, i) => {
+                        const a = c.analysis;
+                        const topSeverity = a.anomalies?.reduce<'critical' | 'high' | 'medium' | null>((acc, x) => {
+                          const order = { critical: 3, high: 2, medium: 1 } as const;
+                          if (!acc) return x.severity;
+                          return order[x.severity] > order[acc] ? x.severity : acc;
+                        }, null);
+                        const badgeClass =
+                          topSeverity === 'critical' ? 'bg-critical/15 text-critical border-critical/30' :
+                          topSeverity === 'high' ? 'bg-destructive/15 text-destructive border-destructive/30' :
+                          topSeverity === 'medium' ? 'bg-warning/15 text-warning border-warning/30' :
+                          'bg-muted text-muted-foreground border-border';
+                        const Icon =
+                          topSeverity === 'critical' ? ShieldAlert :
+                          topSeverity ? AlertTriangle : ShieldCheck;
+                        return (
                         <div
                           key={i}
-                          className="flex items-center justify-between text-xs px-2 py-2 rounded bg-muted/30 hover:bg-muted/60 transition-colors group"
+                          className="flex flex-col gap-1 text-xs px-2 py-2 rounded bg-muted/30 hover:bg-muted/60 transition-colors group"
                         >
+                        <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0">
                             <FileText className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
                             <span className="text-foreground font-mono truncate">{c.name}</span>
                             <span className="text-muted-foreground flex-shrink-0">{formatSize(c.size)}</span>
+                            {a.status === 'analyzing' && (
+                              <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                <Loader2 className="w-3 h-3 animate-spin" /> 탐지 중
+                              </span>
+                            )}
+                            {a.status === 'done' && (
+                              <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] ${badgeClass}`}
+                                title={topSeverity ? `이상 ${a.anomalies!.length}건 (E:${a.errorCount} W:${a.warnCount})` : '이상 없음'}>
+                                <Icon className="w-3 h-3" />
+                                {topSeverity ? `이상 ${a.anomalies!.length}` : '정상'}
+                              </span>
+                            )}
+                            {a.status === 'error' && (
+                              <span className="text-[10px] text-destructive" title={a.error}>탐지 실패</span>
+                            )}
                           </div>
                           <div className="flex items-center gap-1 flex-shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
+
                             <Button
                               variant="ghost"
                               size="icon"
@@ -451,8 +537,23 @@ const FileSplitter = () => {
                               <Play className="w-3 h-3" />
                             </Button>
                           </div>
+
                         </div>
-                      ))}
+                        {a.status === 'done' && (a.firstTime || a.lastTime) && (
+                          <div className="flex items-center gap-2 pl-5 text-[10px] text-muted-foreground font-mono">
+                            <Clock className="w-3 h-3" />
+                            <span>{a.firstTime ?? '—'}</span>
+                            <span>→</span>
+                            <span>{a.lastTime ?? '—'}</span>
+                            {(a.spikes?.length ?? 0) > 0 && (
+                              <span className="ml-2 text-critical">급증 {a.spikes!.length}구간</span>
+                            )}
+                          </div>
+                        )}
+                        </div>
+                        );
+                      })}
+
                     </div>
                   </ScrollArea>
                 </CardContent>
