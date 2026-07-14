@@ -123,6 +123,8 @@ const FileSplitter = () => {
     count: number,
     filePath: string,
     userId: string,
+    isZip: boolean = false,
+    analysis: CachedChunk[] | null = null,
   ) => {
     const { error } = await supabase.from('split_history').insert({
       user_id: userId,
@@ -131,6 +133,8 @@ const FileSplitter = () => {
       chunk_size_mb: chunkMb,
       chunk_count: count,
       file_path: filePath || null,
+      is_zip: isZip,
+      analysis: analysis as unknown as never,
     });
 
     if (error) {
@@ -141,6 +145,7 @@ const FileSplitter = () => {
 
     await fetchHistory();
   }, [fetchHistory]);
+
 
   const deleteHistory = useCallback(async (entry: SplitHistoryEntry) => {
     if (entry.file_path && user) {
