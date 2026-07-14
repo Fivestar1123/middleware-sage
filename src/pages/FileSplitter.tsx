@@ -70,6 +70,7 @@ const FileSplitter = () => {
   const [splitHistory, setSplitHistory] = useState<SplitHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const zipRef = useRef<JSZip | null>(null);
+  const cachedZipBlobRef = useRef<Blob | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const resolveUser = useCallback(async () => {
@@ -173,18 +174,21 @@ const FileSplitter = () => {
         return;
       }
       try {
+        // Cache the downloaded zip blob for later re-download without regenerating.
+        cachedZipBlobRef.current = data;
         const zip = await JSZip.loadAsync(data);
-        const cachedByName = new Map(entry.analysis.map(c => [c.name, c]));
         const restored: ChunkInfo[] = [];
-        // preserve original chunk order
+        // Extract chunks one-by-one and drop them from JSZip to free memory.
         for (const cached of entry.analysis) {
           const zEntry = zip.file(cached.name);
           if (!zEntry) continue;
           const blob = await zEntry.async('blob');
           restored.push({ name: cached.name, size: cached.size ?? blob.size, blob, analysis: cached.analysis });
+          zip.remove(cached.name);
         }
-        zipRef.current = zip;
-        const virtualFile = new File([data], entry.filename, { type: 'application/zip' });
+        zipRef.current = null; 
+        // Lightweight placeholder file (no bytes) to avoid duplicating the zip in memory.
+        const virtualFile = new File([], entry.filename, { type: 'application/zip' });
         setFile(virtualFile);
         setChunkSizeMB(entry.chunk_size_mb);
         setChunks(restored);
@@ -211,7 +215,7 @@ const FileSplitter = () => {
     setChunks([]);
     setProgress(0);
     setSelectedChunk(null);
-    zipRef.current = null;
+    zipRef.current = null; cachedZipBlobRef.current = null;
     const slice = f.slice(0, 50_000);
     const text = await slice.text();
     const lines = text.split('\n').slice(0, 100);
@@ -231,7 +235,7 @@ const FileSplitter = () => {
     setChunks([]);
     setProgress(0);
     setSelectedChunk(null);
-    zipRef.current = null;
+    zipRef.current = null; cachedZipBlobRef.current = null;
 
     const slice = f.slice(0, 50_000);
     const text = await slice.text();
@@ -355,9 +359,13 @@ const FileSplitter = () => {
   }, [file, chunkSizeMB, splitFile]);
 
   const handleDownloadAll = useCallback(async () => {
-    if (!zipRef.current || !file) return;
-    toast({ title: 'ZIP 생성 중...', description: '잠시만 기다려주세요.' });
-    const blob = await zipRef.current.generateAsync({ type: 'blob' });
+    if (!file) return;
+    let blob: Blob | null = cachedZipBlobRef.current;
+    if (!blob) {
+      if (!zipRef.current) return;
+      toast({ title: 'ZIP 생성 중...', description: '잠시만 기다려주세요.' });
+      blob = await zipRef.current.generateAsync({ type: 'blob' });
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -414,7 +422,7 @@ const FileSplitter = () => {
     setChunks([]);
     setProgress(0);
     setSelectedChunk(null);
-    zipRef.current = null;
+    zipRef.current = null; cachedZipBlobRef.current = null;
   }, []);
 
   const estimatedChunks = file ? Math.ceil(file.size / (chunkSizeMB * 1024 * 1024)) : 0;
