@@ -593,7 +593,12 @@ const FileSplitter = () => {
                     {splitHistory.map((entry) => {
                       const date = new Date(entry.created_at);
                       return (
-                        <div key={entry.id} className="flex items-center justify-between py-2 group">
+                        <div
+                          key={entry.id}
+                          className={`flex items-center justify-between py-2 group -mx-2 px-2 rounded transition-colors ${entry.file_path ? 'cursor-pointer hover:bg-accent/50' : ''}`}
+                          onClick={() => entry.file_path && handleResplit(entry)}
+                          title={entry.file_path ? '클릭하여 다시 불러오기' : ''}
+                        >
                           <div className="min-w-0 flex-1">
                             <p className="text-xs font-medium text-foreground truncate">{entry.filename}</p>
                             <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
