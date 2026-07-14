@@ -52,7 +52,8 @@ interface ChunkAnalysis {
 interface ChunkInfo {
   name: string;
   size: number;
-  blob: Blob;
+  blob?: Blob;         // in-memory blob (fresh split: File slice, zero-copy)
+  entryId?: string;    // present when persisted to IndexedDB
   analysis: ChunkAnalysis;
 }
 
