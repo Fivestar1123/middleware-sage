@@ -117,6 +117,15 @@ const FileSplitter = () => {
     fetchHistory();
   }, [fetchHistory]);
 
+  // Tear down the JSZip worker when leaving the page so its heap is reclaimed.
+  useEffect(() => {
+    return () => {
+      cachedZipBlobRef.current = null;
+      pendingEntriesRef.current = null;
+      terminateZipWorker();
+    };
+  }, []);
+
   const saveHistory = useCallback(async (
     filename: string,
     originalSize: number,
