@@ -31,8 +31,8 @@ serve(async (req) => {
       });
     }
 
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-    if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
     const systemPrompt = `너는 LogMind야. 사용자와 AI의 Q&A를 보고서용으로 간결하게 요약해.
 각 Q&A를 다음 JSON 스키마로 변환해서 배열로만 반환해 (다른 텍스트 절대 금지):
@@ -45,14 +45,14 @@ serve(async (req) => {
       .map((p: any, i: number) => `### Q&A ${i + 1}\n[질문]\n${p.question}\n\n[답변]\n${p.answer}`)
       .join("\n\n---\n\n")}`;
 
-    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${GEMINI_API_KEY}`,
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gemini-2.5-flash",
+        model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
