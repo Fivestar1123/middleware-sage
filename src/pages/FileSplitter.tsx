@@ -176,17 +176,25 @@ const FileSplitter = () => {
       try {
         // Cache the downloaded zip blob for later re-download without regenerating.
         cachedZipBlobRef.current = data;
-        const zip = await JSZip.loadAsync(data);
+        const cachedByName = new Map(entry.analysis.map(c => [c.name, c]));
+        const names = entry.analysis.map(c => c.name);
         const restored: ChunkInfo[] = [];
-        // Extract chunks one-by-one and drop them from JSZip to free memory.
-        for (const cached of entry.analysis) {
-          const zEntry = zip.file(cached.name);
-          if (!zEntry) continue;
-          const blob = await zEntry.async('blob');
-          restored.push({ name: cached.name, size: cached.size ?? blob.size, blob, analysis: cached.analysis });
-          zip.remove(cached.name);
-        }
-         
+        let processed = 0;
+        // Stream chunks from the worker; each blob is added immediately and the
+        // worker drops its JSZip reference after posting, so memory stays bounded.
+        await extractZipStream(data, names, (name, blob) => {
+          if (!blob) return;
+          const cached = cachedByName.get(name);
+          restored.push({
+            name,
+            size: cached?.size ?? blob.size,
+            blob,
+            analysis: cached?.analysis ?? { status: 'pending' },
+          });
+          processed++;
+          setProgress(Math.round((processed / names.length) * 100));
+        });
+        cachedByName.clear();
         // Lightweight placeholder file (no bytes) to avoid duplicating the zip in memory.
         const virtualFile = new File([], entry.filename, { type: 'application/zip' });
         setFile(virtualFile);
