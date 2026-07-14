@@ -6,8 +6,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const MAX_REQUEST_BYTES = 256 * 1024;
-const MAX_LOG_CHARS = 8000;
+const MAX_REQUEST_BYTES = 512 * 1024;
+const MAX_LOG_CHARS = 24000;
 const TRUNCATION_SUFFIX = "\n...(truncated)";
 
 const SYSTEM_PROMPT = `너는 LogMind야. JEUS, WebtoB, Apache, Tomcat 등 공공기관 미들웨어 로그를 분석하는 전문가야.
