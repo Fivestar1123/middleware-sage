@@ -226,8 +226,8 @@ const FileSplitter = () => {
 
 
 
-  const handleSplit = useCallback(async () => {
-    if (!file || authLoading) return;
+  const splitFile = useCallback(async (targetFile: File, chunkMb: number) => {
+    if (!targetFile || authLoading) return;
 
     setIsSplitting(true);
     setProgress(0);
@@ -235,17 +235,17 @@ const FileSplitter = () => {
     setSelectedChunk(null);
 
     try {
-      const chunkSize = chunkSizeMB * 1024 * 1024;
-      const totalChunks = Math.ceil(file.size / chunkSize);
+      const chunkSize = chunkMb * 1024 * 1024;
+      const totalChunks = Math.ceil(targetFile.size / chunkSize);
       const zip = new JSZip();
-      const baseName = file.name.replace(/\.[^.]+$/, '');
-      const ext = file.name.includes('.') ? file.name.slice(file.name.lastIndexOf('.')) : '.txt';
+      const baseName = targetFile.name.replace(/\.[^.]+$/, '');
+      const ext = targetFile.name.includes('.') ? targetFile.name.slice(targetFile.name.lastIndexOf('.')) : '.txt';
       const resultChunks: ChunkInfo[] = [];
 
       for (let i = 0; i < totalChunks; i++) {
         const start = i * chunkSize;
-        const end = Math.min(start + chunkSize, file.size);
-        const blob = file.slice(start, end);
+        const end = Math.min(start + chunkSize, targetFile.size);
+        const blob = targetFile.slice(start, end);
         const name = `${baseName}_part${String(i + 1).padStart(3, '0')}${ext}`;
         zip.file(name, blob);
         resultChunks.push({ name, size: end - start, blob, analysis: { status: 'pending' } });
@@ -257,9 +257,7 @@ const FileSplitter = () => {
       setChunks(resultChunks);
       toast({ title: '분할 완료', description: `${resultChunks.length}개 파일로 분할되었습니다. 이상탐지를 시작합니다.` });
 
-      // Kick off anomaly detection for each chunk (sequential)
       void detectAnomalies(resultChunks);
-
 
       const currentUser = await resolveUser();
       if (!currentUser) {
@@ -272,15 +270,15 @@ const FileSplitter = () => {
       }
 
       let filePath = '';
-      const storagePath = `${currentUser.id}/${Date.now()}_${file.name}`;
-      const { error: uploadErr } = await supabase.storage.from('split-files').upload(storagePath, file);
+      const storagePath = `${currentUser.id}/${Date.now()}_${targetFile.name}`;
+      const { error: uploadErr } = await supabase.storage.from('split-files').upload(storagePath, targetFile);
       if (uploadErr) {
         console.error('Storage upload failed:', uploadErr);
       } else {
         filePath = storagePath;
       }
 
-      await saveHistory(file.name, file.size, chunkSizeMB, resultChunks.length, filePath, currentUser.id);
+      await saveHistory(targetFile.name, targetFile.size, chunkMb, resultChunks.length, filePath, currentUser.id);
     } catch (error) {
       console.error('Split failed:', error);
       toast({
@@ -291,7 +289,11 @@ const FileSplitter = () => {
     } finally {
       setIsSplitting(false);
     }
-  }, [authLoading, chunkSizeMB, file, resolveUser, saveHistory]);
+  }, [authLoading, detectAnomalies, resolveUser, saveHistory]);
+
+  const handleSplit = useCallback(() => {
+    if (file) void splitFile(file, chunkSizeMB);
+  }, [file, chunkSizeMB, splitFile]);
 
   const handleDownloadAll = useCallback(async () => {
     if (!zipRef.current || !file) return;
